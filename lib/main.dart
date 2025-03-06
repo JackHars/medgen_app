@@ -112,6 +112,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late final List<Offset> _starPositions;
   late final List<double> _starSizes;
 
+  // Add a new state variable to track the processing stage
+  String? _lastSubstage;
+  bool _processingJustStarted = false;
+
   @override
   void initState() {
     super.initState();
@@ -313,6 +317,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _progressStartTime = DateTime.now();
     _lastProgressUpdateTime = _progressStartTime;
     
+    // Reset processing stage tracking
+    _lastSubstage = null;
+    _processingJustStarted = false;
+    
     setState(() {
       _statusMessage = 'Starting meditation generation...';
       _progressPercent = 0; // Start with 0% progress
@@ -346,6 +354,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
       
+      // Check if we just entered the processing substage
+      if (status == 'generating_audio' && substage == 'processing' && _lastSubstage != 'processing') {
+        _processingJustStarted = true;
+      }
+      
+      // Update last substage for next comparison
+      _lastSubstage = substage;
+      
       // PROGRESS BAR FOCUSED ONLY ON PROCESSING SUBSTAGE
       int newProgress = 0;
       
@@ -353,10 +369,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // Complete
         newProgress = 100;
       } else if (status == 'generating_audio' && substage == 'processing') {
-        // Get the actual progress from the backend for the processing substage
-        // Convert it directly to 0-100 scale
-        final int processingProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        newProgress = processingProgress;
+        // Force progress to 0% when processing just started
+        if (_processingJustStarted) {
+          newProgress = 0;
+          _processingJustStarted = false;
+        } else {
+          // Get the actual progress from the backend for the processing substage
+          final int processingProgress = (response['progress'] as num?)?.toInt() ?? 0;
+          newProgress = processingProgress;
+        }
       } else if (status == 'generating_audio' && substage == 'post_processing') {
         // Post-processing is complete - show 100%
         newProgress = 100;
