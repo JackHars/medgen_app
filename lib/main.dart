@@ -80,10 +80,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _lastServerProgress = 0;
   DateTime? _progressStartTime;
   DateTime? _lastProgressUpdateTime;
-  // Progress animation controller for smoother visual transitions
-  late AnimationController _progressAnimationController;
-  late Animation<double> _progressAnimation;
-  
   // Simplified stage weights - just script generation and audio generation
   Map<String, int> _stageWeights = {
     'generating_script': 30, // Script generation is faster
@@ -119,23 +115,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    
-    // Initialize progress animation controller for smooth transitions
-    _progressAnimationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800), // Smooth transition
-    );
-    _progressAnimation = Tween<double>(begin: 0, end: 0).animate(
-      CurvedAnimation(
-        parent: _progressAnimationController,
-        curve: Curves.easeInOut,
-      ),
-    );
-    _progressAnimationController.addListener(() {
-      setState(() {
-        // This will trigger rebuilds as the animation progresses
-      });
-    });
     
     // Initialize audio progress controller
     _audioProgressController = AnimationController(
@@ -240,7 +219,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _audioProgressController.dispose();
     _audioPlayer.dispose();
     _pollingTimer?.cancel();
-    _progressAnimationController.dispose();
     for (final controller in _starControllers) {
       controller.dispose();
     }
@@ -325,39 +303,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  void _startPollingJobStatus() {
-    // Cancel any existing timer
-    _pollingTimer?.cancel();
-    
-    // Initialize polling variables
-    _pollCount = 0;
-    _lastServerProgress = 0;
-    _progressStartTime = DateTime.now();
-    _lastProgressUpdateTime = _progressStartTime;
-    
-    setState(() {
-      _statusMessage = 'Starting meditation generation...';
-      _progressPercent = 0; // Start with 0% progress
-    });
-    
-    // Start polling
-    _pollingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      _pollJobStatus();
-      
-      // Increment poll count
-      _pollCount++;
-      
-      // If we've been polling for too long (10 minutes), stop
-      if (_pollCount > 600) {
-        timer.cancel();
-        setState(() {
-          _isLoading = false;
-          _meditation = 'Sorry, the meditation is taking longer than expected. Please try again.';
-        });
-      }
-    });
-  }
-  
   Future<void> _pollJobStatus() async {
     if (_jobId == null) return;
     
@@ -368,132 +313,105 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
       
-      // Calculate weighted progress based on stages
+      // Current time for calculations
+      final now = DateTime.now();
+      
+      // Calculate time elapsed since polling started
+      final int totalElapsedMs = _progressStartTime != null 
+          ? now.difference(_progressStartTime!).inMilliseconds 
+          : 0;
+      
+      // Time since last update to determine if we need to apply artificial progress
+      final int elapsedSinceLastUpdateMs = _lastProgressUpdateTime != null 
+          ? now.difference(_lastProgressUpdateTime!).inMilliseconds 
+          : 0;
+      
+      // Calculate progress based on the current status
       int estimatedProgress = 0;
       
-      // Track completion of each stage
+      // Allocate progress: 15% for text generation, 85% for audio generation
       if (status == 'initializing') {
-        // Consider initialization as part of script generation
-        estimatedProgress = 5; // Start with a small progress indication
+        // Initialization (0-5%)
+        estimatedProgress = 5;
       } else if (status == 'generating_script') {
-        // Script generation (0-30%)
+        // Script generation (0-15%)
         final int scriptProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress = (scriptProgress * 30) ~/ 100;
+        estimatedProgress = (scriptProgress * 15) ~/ 100;
       } else if (status == 'preparing_audio') {
-        // Completed script generation, preparing for audio (30-35%)
-        estimatedProgress = 30; // Script generation complete
+        // Audio preparation (15-20%)
+        estimatedProgress = 15; // Script generation complete
         final int preparingProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress += (preparingProgress * 5) ~/ 100; // Small weight for preparation
+        estimatedProgress += (preparingProgress * 5) ~/ 100;
       } else if (status == 'generating_audio') {
-        // Script generation complete, now generating audio (35-95%)
-        estimatedProgress = 35; // Script generation + preparation complete
+        // Audio generation (20-95%)
+        estimatedProgress = 20; // Script + prep complete
         
         // Calculate audio generation progress
-        final int audioRemainingWeight = 60; // 95% - 35% = 60% for audio generation
+        final int audioRemainingWeight = 75; // 95% - 20% = 75% for audio generation
         
-        if (substage == null) {
-          // If no substage, assume halfway through audio generation
-          estimatedProgress += (audioRemainingWeight ~/ 2);
-        } else {
-          // Calculate based on substage within audio generation
-          double audioProgress = 0;
+        // Progress based on substage
+        double audioProgress = 0;
+        
+        if (substage == 'initializing') {
+          audioProgress = 0.05; // Just started audio (5% of audio weight)
+        } else if (substage == 'chunking') {
+          audioProgress = 0.10; // Chunking (10% of audio weight)
+        } else if (substage == 'processing') {
+          // Processing (10-90% of audio weight)
+          final int current = response['current'] ?? 1;
+          final int total = response['total'] ?? 1;
           
-          if (substage == 'initializing') {
-            audioProgress = 0.05; // Just started audio
-          } else if (substage == 'chunking') {
-            audioProgress = 0.15; // Chunking phase
-          } else if (substage == 'processing') {
-            // Processing phase - this takes the longest
-            final int current = response['current'] ?? 1;
-            final int total = response['total'] ?? 1;
-            
-            // Calculate progress within processing (15-85% of audio weight)
-            double processingProgress = 0.15; // Start at 15%
-            if (total > 0) {
-              // Add progress based on current batch
-              processingProgress += 0.7 * (current / total);
-            } else {
-              // If no batch info, use time-based estimation
-              final now = DateTime.now();
-              final elapsedSinceLastUpdate = now.difference(_lastProgressUpdateTime!).inMilliseconds;
-              
-              // Advance slowly every poll
-              if (elapsedSinceLastUpdate > 1000) {
-                processingProgress += 0.01 * (_pollCount % 3 + 1);
-                _lastProgressUpdateTime = now;
-              }
-            }
-            
-            // Cap at 85%
-            audioProgress = math.min(processingProgress, 0.85);
-          } else if (substage == 'post_processing') {
-            audioProgress = 0.9; // Almost done with audio
+          if (total > 0) {
+            // If we have batch info, calculate based on current/total
+            audioProgress = 0.10 + 0.80 * (current / total);
+          } else {
+            // Time-based estimation when no batch info
+            // Assume processing takes about 60 seconds total
+            const int estimatedProcessingTimeMs = 60000;
+            audioProgress = 0.10 + 0.80 * math.min(1.0, totalElapsedMs / estimatedProcessingTimeMs);
           }
-          
-          // Apply the calculated audio progress to the audio weight
-          estimatedProgress += (audioProgress * audioRemainingWeight).toInt();
+        } else if (substage == 'post_processing') {
+          audioProgress = 0.95; // Post-processing (95% of audio weight)
+        } else {
+          // If no substage, use time-based estimation
+          // Assume audio generation takes about 90 seconds total
+          const int estimatedAudioTimeMs = 90000;
+          audioProgress = math.min(0.95, totalElapsedMs / estimatedAudioTimeMs);
         }
+        
+        // Cap audio progress at 0.95 (95% of audio weight)
+        audioProgress = math.min(0.95, audioProgress);
+        
+        // Apply the audio progress to the audio weight
+        estimatedProgress += (audioProgress * audioRemainingWeight).toInt();
       } else if (status == 'finalizing') {
-        // Treat finalizing as completing the audio generation (95-100%)
+        // Finalizing (95-99%)
         estimatedProgress = 95;
         final int finalizingProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress += (finalizingProgress * 5) ~/ 100;
+        estimatedProgress += (finalizingProgress * 4) ~/ 100;
       } else if (status == 'completed') {
         estimatedProgress = 100;
       }
       
       // Store the server's progress and time for reference
-      final now = DateTime.now();
       _lastServerProgress = (response['progress'] as num?)?.toInt() ?? _lastServerProgress;
       
-      // Determine the next milestone based on current status
-      int nextMilestone = 100;
-      if (status == 'generating_script') {
-        nextMilestone = 30;
-      } else if (status == 'preparing_audio') {
-        nextMilestone = 35;
-      } else if (status == 'generating_audio') {
-        if (substage == 'initializing') {
-          nextMilestone = 40;
-        } else if (substage == 'chunking') {
-          nextMilestone = 45;
-        } else if (substage == 'processing') {
-          nextMilestone = 90;
-        } else if (substage == 'post_processing') {
-          nextMilestone = 95;
-        } else {
-          nextMilestone = 85;
-        }
-      } else if (status == 'finalizing') {
-        nextMilestone = 99;
-      }
+      // Check if progress appears stalled
+      bool progressStalled = estimatedProgress <= _progressPercent;
       
-      // ALWAYS increment the progress slightly regardless of whether it's stalled
-      // This ensures continuous movement, especially during audio generation
-      if (estimatedProgress <= _progressPercent) {
-        // If no progress from the server, apply a smooth increment
-        final int incrementAmount = 1 + (_pollCount % 3); // 1-3 percent increment
+      // If progress appears stalled for more than 1.5 seconds, apply small increments
+      if (progressStalled && elapsedSinceLastUpdateMs > 1500) {
+        // Determine next milestone based on current status
+        int nextMilestone = _getNextMilestone(status, substage);
+        
+        // Apply a small increment but don't exceed the next milestone
+        final int incrementAmount = 1; // 1% increment for smooth movement
         estimatedProgress = math.min(_progressPercent + incrementAmount, nextMilestone - 1);
-      } else {
-        // If we have progress from the server, ensure it's at least slightly more than current
-        estimatedProgress = math.max(estimatedProgress, _progressPercent + 1);
+        
+        _lastProgressUpdateTime = now;
+      } else if (!progressStalled) {
+        _lastProgressUpdateTime = now;
       }
-      
-      // Apply time-based incremental progress even if server estimate is higher
-      // This ensures progress bar always moves visibly on each poll
-      final int elapsedMillis = now.difference(_progressStartTime!).inMilliseconds;
-      
-      // After certain time thresholds, ensure minimum progress percentage
-      // This prevents the bar from getting stuck too long at early stages
-      if (elapsedMillis > 30000 && estimatedProgress < 40) { // 30 seconds
-        estimatedProgress = math.max(estimatedProgress, 40);
-      } else if (elapsedMillis > 60000 && estimatedProgress < 60) { // 1 minute
-        estimatedProgress = math.max(estimatedProgress, 60);
-      } else if (elapsedMillis > 120000 && estimatedProgress < 80) { // 2 minutes
-        estimatedProgress = math.max(estimatedProgress, 80);
-      }
-      
-      _lastProgressUpdateTime = now;
       
       // Ensure progress never goes backwards
       estimatedProgress = math.max(estimatedProgress, _progressPercent);
@@ -505,46 +423,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       
       setState(() {
         // Update progress percentage using our calculated value
-        int oldProgress = _progressPercent;
         _progressPercent = estimatedProgress;
         
-        // Animate the progress change for smooth visual transition
-        _progressAnimation = Tween<double>(
-          begin: oldProgress / 100.0,
-          end: estimatedProgress / 100.0
-        ).animate(
-          CurvedAnimation(
-            parent: _progressAnimationController,
-            curve: Curves.easeInOut,
-          ),
-        );
-        _progressAnimationController.forward(from: 0);
-        
-        // Simplify status messages to focus on script and audio generation
-        switch (status) {
-          case 'initializing':
-          case 'generating_script':
-            _statusMessage = 'Creating your personalized meditation script...';
-            break;
-          case 'preparing_audio':
-          case 'generating_audio':
-            // For audio generation, use different messages for each substage
-            if (substage == 'initializing' || substage == 'chunking') {
-              _statusMessage = 'Starting audio generation...';
-            } else if (substage == 'processing') {
-              _statusMessage = 'Generating your meditation...';
-            } else if (substage == 'post_processing') {
-              _statusMessage = 'Adding ambient background sounds...';
-            } else {
-              _statusMessage = 'Generating your meditation audio...';
-            }
-            break;
-          case 'finalizing':
-            _statusMessage = 'Finalizing your meditation...';
-            break;
-          default:
-            _statusMessage = 'Processing your meditation...';
-        }
+        // Update status message based on current stage
+        _updateStatusMessage(status, substage);
       });
       
       // Check if the job is completed
@@ -574,16 +456,100 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     } catch (e) {
       print('Error polling job status: $e');
       // Don't cancel the timer on error, just keep trying
-      // But update the status message to show we're still working
       setState(() {
         _statusMessage = 'Still waiting for your meditation (this may take a few minutes)...';
         
-        // Even on errors, increment progress slightly to keep the bar moving
+        // Even on error, increment progress slightly to show movement
         if (_progressPercent < 95) {
-          _progressPercent = math.min(_progressPercent + 1, 95);
+          _progressPercent += 1;
         }
       });
     }
+  }
+  
+  // Helper method to determine the next progress milestone based on status
+  int _getNextMilestone(String status, String? substage) {
+    if (status == 'initializing') return 5;
+    if (status == 'generating_script') return 15;
+    if (status == 'preparing_audio') return 20;
+    
+    if (status == 'generating_audio') {
+      if (substage == 'initializing') return 25;
+      if (substage == 'chunking') return 35;
+      if (substage == 'processing') return 90;
+      if (substage == 'post_processing') return 95;
+      return 90; // Default for audio generation
+    }
+    
+    if (status == 'finalizing') return 99;
+    return 99; // Default cap
+  }
+  
+  // Helper method to update status message based on current stage
+  void _updateStatusMessage(String status, String? substage) {
+    switch (status) {
+      case 'initializing':
+        _statusMessage = 'Initializing your meditation...';
+        break;
+      case 'generating_script':
+        _statusMessage = 'Creating your personalized meditation script...';
+        break;
+      case 'preparing_audio':
+        _statusMessage = 'Preparing to generate calming audio...';
+        break;
+      case 'generating_audio':
+        // For audio generation, use different messages for each substage
+        if (substage == 'initializing') {
+          _statusMessage = 'Starting audio generation...';
+        } else if (substage == 'chunking') {
+          _statusMessage = 'Preparing voice patterns...';
+        } else if (substage == 'processing') {
+          _statusMessage = 'Generating your meditation voice...';
+        } else if (substage == 'post_processing') {
+          _statusMessage = 'Adding ambient background sounds...';
+        } else {
+          _statusMessage = 'Generating your meditation audio...';
+        }
+        break;
+      case 'finalizing':
+        _statusMessage = 'Finalizing your meditation experience...';
+        break;
+      default:
+        _statusMessage = 'Processing your meditation...';
+    }
+  }
+
+  void _startPollingJobStatus() {
+    // Cancel any existing timer
+    _pollingTimer?.cancel();
+    
+    // Initialize polling variables
+    _pollCount = 0;
+    _lastServerProgress = 0;
+    _progressStartTime = DateTime.now();
+    _lastProgressUpdateTime = _progressStartTime;
+    
+    setState(() {
+      _statusMessage = 'Starting meditation generation...';
+      _progressPercent = 0; // Start with 0% progress
+    });
+    
+    // Start polling with a faster interval for more responsive updates
+    _pollingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _pollJobStatus();
+      
+      // Increment poll count
+      _pollCount++;
+      
+      // If we've been polling for too long (10 minutes), stop
+      if (_pollCount > 600) { // 10 minutes at 1 second intervals
+        timer.cancel();
+        setState(() {
+          _isLoading = false;
+          _meditation = 'Sorry, the meditation is taking longer than expected. Please try again.';
+        });
+      }
+    });
   }
 
   Future<void> _generateMeditation() async {
@@ -1126,17 +1092,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               width: double.infinity,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: AnimatedBuilder(
-                  animation: _progressAnimationController,
-                  builder: (context, child) {
-                    // Use the animated value for smoother visual progress
-                    return LinearProgressIndicator(
-                      value: _progressAnimation.value,
-                      backgroundColor: Colors.white.withOpacity(0.1),
-                      color: Theme.of(context).colorScheme.primary,
-                      minHeight: 10,
-                    );
-                  },
+                child: LinearProgressIndicator(
+                  value: _progressPercent > 0 ? _progressPercent / 100 : null,
+                  backgroundColor: Colors.white.withOpacity(0.1),
+                  color: Theme.of(context).colorScheme.primary,
+                  minHeight: 10,
                 ),
               ),
             ),
