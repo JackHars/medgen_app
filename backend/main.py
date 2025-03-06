@@ -492,11 +492,11 @@ def generate_meditation_script(user_worry):
     2. Have a clear beginning, middle, and end with thorough guidance throughout
     3. Include detailed breathing guidance and visualization exercises
     4. Take the listener on a journey to help them find deep peace with their concern
-    5. Include extended periods of guided relaxation for each part of the body
-    6. End with positive affirmations and empowering statements
-    7. Be approximately 1200 words in length to provide a complete 15-20 minute meditation experience
-    
-    Write ONLY the meditation script without any additional explanations or headers, and do not greet the user (No "Hello, I'm a meditation guide..." or anything like that).
+    5. End with positive affirmations and empowering statements
+    6. Be approximately 1200 words in length to provide a complete 15-20 minute meditation experience
+    7. This spript will be fed to a TTS model. DO NOT include lists, extra punctuation, ascii art, or any other formatting
+
+    Write ONLY the meditation script without any additional explanations or headers, and do not greet the user or use words like Namaste.
     """
     
     print(f"Generating comprehensive personalized meditation script using local {OLLAMA_MODEL} model...")
