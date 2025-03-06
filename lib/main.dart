@@ -576,224 +576,396 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             }),
           ),
           
-          // Main content with padding
+          // Main content
           SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
             child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 800),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 80),
-                    
-                    // App title
-                    Text(
-                      'Oneiro',
-                      style: GoogleFonts.inter(
-                        fontSize: 48, 
-                        fontWeight: FontWeight.w900,
-                        height: 1.1,
-                        color: Colors.white,
-                        letterSpacing: -1.0,
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 8),
-                    
-                    // Tagline
-                    Text(
-                      'AI-Powered Meditation Generator',
-                      style: GoogleFonts.inter(
-                        fontSize: 16,
-                        color: Colors.white70,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 60),
-                    
-                    // Main card with input and output
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.05),
-                          width: 1,
-                        ),
-                      ),
-                      padding: const EdgeInsets.all(24.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 800),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Navigation
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Input section
-                          TextField(
-                            controller: _inputController,
-                            decoration: InputDecoration(
-                              hintText: 'Tell me what\'s on your mind...',
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  Icons.spa_rounded, 
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Transform(
+                                alignment: Alignment.center,
+                                transform: Matrix4.identity()..scale(-1.0, 1.0, 1.0), // Horizontal flip
+                                child: Icon(
+                                  Icons.nightlight_round,
                                   color: Theme.of(context).colorScheme.primary,
+                                  size: 30, // 25% bigger than original 24
                                 ),
-                                onPressed: _isLoading ? null : _generateMeditation,
+                              ),
+                              const SizedBox(width: 16), // Increased spacing for better balance
+                              Text(
+                                'Oneiro',
+                                style: GoogleFonts.inter(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary,
+                              borderRadius: BorderRadius.circular(100),
+                            ),
+                            child: Text(
+                              'Beta',
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
                               ),
                             ),
-                            style: const TextStyle(
-                              fontSize: 18,
-                            ),
-                            maxLines: 1,
-                            onSubmitted: (_) => _generateMeditation(),
                           ),
-                          
-                          const SizedBox(height: 24),
-                          
-                          // Loading indicator or meditation content
-                          if (_isLoading)
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                LinearProgressIndicator(
-                                  value: _progressPercent > 0 ? _progressPercent / 100 : null,
-                                  backgroundColor: Colors.white.withOpacity(0.1),
-                                  color: Theme.of(context).colorScheme.primary,
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 80),
+                      
+                      // Hero section
+                      Column(
+                        children: [
+                          Text(
+                            'From worries to wisdom,',
+                            style: GoogleFonts.inter(
+                              fontSize: 48,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              height: 1.2,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          Text(
+                            'one breath away.',
+                            style: GoogleFonts.inter(
+                              fontSize: 48,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white.withOpacity(0.5),
+                              height: 1.2,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 60),
+                      
+                      // Input section
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: const Color(0xFF8B5CF6).withOpacity(0.2),
+                            width: 1,
+                          ),
+                          color: Theme.of(context).colorScheme.surface.withOpacity(0.3),
+                        ),
+                        padding: const EdgeInsets.all(4),
+                        child: Row(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(left: 16),
+                              child: Icon(
+                                Icons.spa_outlined,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: _inputController,
+                                style: const TextStyle(color: Colors.white),
+                                decoration: const InputDecoration(
+                                  hintText: 'Tell us what\'s troubling you...',
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.all(16),
                                 ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  _statusMessage,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: Colors.white70,
+                                onSubmitted: (_) => _generateMeditation(),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              margin: const EdgeInsets.all(4),
+                              child: ElevatedButton(
+                                onPressed: _isLoading ? null : _generateMeditation,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Theme.of(context).colorScheme.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
-                                const SizedBox(height: 24),
-                                const CircularProgressIndicator(),
-                              ],
-                            )
-                          else if (_meditation.isNotEmpty)
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                // Expandable meditation text
+                                child: _isLoading
+                                    ? _buildLoadingIndicator()
+                                    : const Text('Generate'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      // Meditation Result
+                      if (_meditation.isNotEmpty) ...[
+                        const SizedBox(height: 48),
+                        Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: const Color(0xFF8B5CF6).withOpacity(0.2),
+                              width: 1,
+                            ),
+                            color: Theme.of(context).colorScheme.surface.withOpacity(0.3),
+                          ),
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      Icons.self_improvement,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Text(
+                                    'Your Guided Meditation',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 24),
+                              
+                              // Audio Player
+                              if (_audioUrl != null)
                                 Container(
-                                  padding: const EdgeInsets.all(24),
+                                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.surface.withOpacity(0.5),
+                                    color: Theme.of(context).colorScheme.surface.withOpacity(0.3),
                                     borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: const Color(0xFF8B5CF6).withOpacity(0.15),
+                                      width: 1,
+                                    ),
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        _isScriptExpanded
-                                          ? _meditation
-                                          : _meditation.split('\n\n').take(2).join('\n\n') + '\n\n...',
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          height: 1.8,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Center(
-                                        child: TextButton(
-                                          onPressed: _toggleScript,
-                                          child: Text(
-                                            _isScriptExpanded ? 'Show Less' : 'Show More',
-                                            style: TextStyle(
+                                      Row(
+                                        children: [
+                                          // Play/Pause button
+                                          IconButton(
+                                            onPressed: _togglePlayPause,
+                                            icon: Icon(
+                                              _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
                                               color: Theme.of(context).colorScheme.primary,
+                                              size: 40,
                                             ),
                                           ),
+                                          const SizedBox(width: 8),
+                                          
+                                          // Progress bar
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                ClipRRect(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  child: LinearProgressIndicator(
+                                                    value: _audioProgress,
+                                                    backgroundColor: Theme.of(context).colorScheme.surface,
+                                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                                      Theme.of(context).colorScheme.primary,
+                                                    ),
+                                                    minHeight: 8,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Row(
+                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    Text(
+                                                      _formatDuration(_audioProgress * 300), // 5 minutes in seconds
+                                                      style: GoogleFonts.inter(
+                                                        fontSize: 12,
+                                                        color: Colors.white.withOpacity(0.7),
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      '5:00',
+                                                      style: GoogleFonts.inter(
+                                                        fontSize: 12,
+                                                        color: Colors.white.withOpacity(0.7),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.download),
+                                            color: Colors.white70,
+                                            onPressed: _downloadAudio,
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Listen to your guided meditation',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: Colors.white.withOpacity(0.7),
+                                          fontStyle: FontStyle.italic,
                                         ),
+                                        textAlign: TextAlign.center,
                                       ),
                                     ],
                                   ),
                                 ),
-                                
-                                const SizedBox(height: 24),
-                                
-                                // Audio player controls
-                                if (_audioUrl != null)
-                                  Container(
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context).colorScheme.surface.withOpacity(0.5),
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        // Progress bar
-                                        SliderTheme(
-                                          data: SliderThemeData(
-                                            trackHeight: 4,
-                                            activeTrackColor: Theme.of(context).colorScheme.primary,
-                                            inactiveTrackColor: Colors.white.withOpacity(0.2),
-                                            thumbColor: Theme.of(context).colorScheme.primary,
-                                            thumbShape: const RoundSliderThumbShape(
-                                              enabledThumbRadius: 6,
-                                            ),
-                                          ),
-                                          child: Slider(
-                                            value: _audioProgress,
-                                            onChanged: (value) {
-                                              if (_audioPlayer.duration != null) {
-                                                final position = Duration(
-                                                  milliseconds: (value * _audioPlayer.duration!.inMilliseconds).round(),
-                                                );
-                                                _audioPlayer.seek(position);
-                                              }
-                                            },
-                                          ),
-                                        ),
-                                        
-                                        const SizedBox(height: 8),
-                                        
-                                        // Play/pause button and download button
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            IconButton(
-                                              icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled),
-                                              color: Theme.of(context).colorScheme.primary,
-                                              iconSize: 48,
-                                              onPressed: _togglePlayPause,
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(Icons.download),
-                                              color: Colors.white70,
-                                              onPressed: _downloadAudio,
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
+                              
+                              const SizedBox(height: 24),
+                              
+                              // Meditation script in dropdown
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.surface,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Theme(
+                                  data: Theme.of(context).copyWith(
+                                    splashColor: Colors.transparent,
+                                    highlightColor: Colors.transparent,
+                                    hoverColor: Colors.transparent,
                                   ),
-                              ],
-                            ),
-                        ],
+                                  child: ExpansionPanelList(
+                                    elevation: 0,
+                                    expandedHeaderPadding: EdgeInsets.zero,
+                                    expansionCallback: (_, __) => _toggleScript(),
+                                    children: [
+                                      ExpansionPanel(
+                                        backgroundColor: Colors.transparent,
+                                        headerBuilder: (context, isExpanded) {
+                                          return Container(
+                                            padding: const EdgeInsets.all(16),
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.text_snippet_outlined,
+                                                  color: Theme.of(context).colorScheme.primary,
+                                                  size: 20,
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Text(
+                                                  'Meditation Script',
+                                                  style: GoogleFonts.inter(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w500,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        },
+                                        body: Container(
+                                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                                          child: Text(
+                                            _meditation,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 16,
+                                              height: 1.8,
+                                              color: Colors.white.withOpacity(0.9),
+                                            ),
+                                          ),
+                                        ),
+                                        isExpanded: _isScriptExpanded,
+                                        canTapOnHeader: true,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      
+                      const SizedBox(height: 80),
+                      
+                      // Footer
+                      Text(
+                        '© 2025 Oneiro',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: Colors.white.withOpacity(0.5),
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                    ),
-                    
-                    const SizedBox(height: 40),
-                    
-                    // Footer text with attribution
-                    Text(
-                      'Crafted with cosmic energy by Oneiro',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 80),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+  
+  // Helper method to build loading indicator with status
+  Widget _buildLoadingIndicator() {
+    if (_progressPercent <= 0) {
+      return const SizedBox(
+        height: 20,
+        width: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+        ),
+      );
+    }
+    
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 20,
+          width: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+            value: _progressPercent / 100,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '${_progressPercent.round()}%',
+          style: const TextStyle(fontSize: 12),
+        ),
+      ],
     );
   }
 }
