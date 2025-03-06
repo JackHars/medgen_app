@@ -364,7 +364,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         
         // Start a smooth progress timer that increments from 0% to 99% over 3 minutes
         // This is purely time-based and doesn't use any values from the server
-        _progressTimer = Timer.periodic(const Duration(milliseconds: 2000), (timer) {
+        _progressTimer = Timer.periodic(const Duration(milliseconds: 3000), (timer) {
           setState(() {
             // Cap at 99% - we'll set to 100% only when complete
             if (_progressPercent < 99) {
@@ -387,40 +387,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         });
         print('PROCESSING STAGE COMPLETED - setting progress to 100%');
       }
-      
-      // Update status message without changing progress (which is handled by the timer)
-      setState(() {
-        // Status message updates
-        switch (status) {
-          case 'initializing':
-            _statusMessage = 'Starting your meditation...';
-            break;
-          case 'generating_script':
-            _statusMessage = 'Creating your personalized meditation script...';
-            break;
-          case 'preparing_audio':
-            _statusMessage = 'Preparing for audio generation...';
-            break;
-          case 'generating_audio':
-            if (substage == 'initializing') {
-              _statusMessage = 'Initializing audio generation...';
-            } else if (substage == 'chunking') {
-              _statusMessage = 'Preparing audio resources...';
-            } else if (substage == 'processing') {
-              _statusMessage = 'Generating your meditation audio... ${_progressPercent}%';
-            } else if (substage == 'post_processing') {
-              _statusMessage = 'Adding ambient background sounds...';
-            } else {
-              _statusMessage = 'Generating your meditation audio...';
-            }
-            break;
-          case 'finalizing':
-            _statusMessage = 'Finalizing your meditation...';
-            break;
-          default:
-            _statusMessage = 'Processing your meditation...';
-        }
-      });
       
       // Check if the job is completed
       if (response['status'] == 'completed') {
@@ -451,9 +417,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     } catch (e) {
       print('Error polling job status: $e');
       // Don't cancel the timers on error, just keep trying
-      setState(() {
-        _statusMessage = 'Still waiting for your meditation...';
-      });
     }
   }
 
@@ -477,7 +440,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Send request to the backend server
       final response = await ApiService.processText(stressDescription);
       
-      // Check if response contains a job ID for async processing
+      // Check if response contains a job ID for async 
       if (response.containsKey('job_id')) {
         _jobId = response['job_id'];
         print('Started async job: $_jobId');
@@ -1027,9 +990,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // Equal padding below
         const SizedBox(height: 30),
         
-        // Status message
+        // Simple message
         Text(
-          _statusMessage,
+          'Generating your meditation...',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.white.withOpacity(0.9),
@@ -1042,9 +1005,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         
         // Subtitle explaining progress
         Text(
-          _progressPercent > 0 
-              ? 'Generating audio content for your meditation...'
-              : 'Preparing your personalized meditation. Audio generation will begin soon...',
+          'This may take a few minutes. Please be patient.',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.white.withOpacity(0.6),
