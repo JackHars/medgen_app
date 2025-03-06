@@ -116,6 +116,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   String? _lastSubstage;
   bool _processingJustStarted = false;
 
+  // Add these additional tracking variables
+  int _processingStartPollCount = 0;
+  bool _inProcessingStage = false;
+
   @override
   void initState() {
     super.initState();
@@ -320,6 +324,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // Reset processing stage tracking
     _lastSubstage = null;
     _processingJustStarted = false;
+    _inProcessingStage = false;
+    _processingStartPollCount = 0;
+    
+    print('STARTING NEW JOB - all tracking variables reset');
     
     setState(() {
       _statusMessage = 'Starting meditation generation...';
@@ -354,9 +362,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
       
-      // Check if we just entered the processing substage
-      if (status == 'generating_audio' && substage == 'processing' && _lastSubstage != 'processing') {
-        _processingJustStarted = true;
+      // Debug print to understand what's happening
+      print('Poll $_pollCount: Status=$status, Substage=$substage, ServerProgress=${response['progress']}, LastSubstage=$_lastSubstage');
+      
+      // Enhanced detection of processing stage transition
+      bool justEnteredProcessing = false;
+      if (status == 'generating_audio' && substage == 'processing' && !_inProcessingStage) {
+        justEnteredProcessing = true;
+        _inProcessingStage = true;
+        _processingStartPollCount = _pollCount;
+        print('PROCESSING STAGE JUST STARTED at poll $_pollCount');
       }
       
       // Update last substage for next comparison
@@ -369,25 +384,41 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // Complete
         newProgress = 100;
       } else if (status == 'generating_audio' && substage == 'processing') {
-        // Force progress to 0% when processing just started
-        if (_processingJustStarted) {
+        if (justEnteredProcessing) {
+          // Force to exactly 0% when processing just started
           newProgress = 0;
-          _processingJustStarted = false;
+          print('FORCING progress to 0% at start of processing');
         } else {
-          // Get the actual progress from the backend for the processing substage
-          final int processingProgress = (response['progress'] as num?)?.toInt() ?? 0;
-          newProgress = processingProgress;
+          // For the first 5 polls after processing starts, show very low progress
+          // This ensures we never jump to a high percentage immediately
+          int pollsSinceProcessingStarted = _pollCount - _processingStartPollCount;
+          if (pollsSinceProcessingStarted <= 5) {
+            // Force a gradual start: 0, 1, 2, 3, 4, 5%
+            newProgress = pollsSinceProcessingStarted;
+            print('RAMPING UP progress: $newProgress% (poll $pollsSinceProcessingStarted after processing start)');
+          } else {
+            // After 5 polls, use the actual progress from the backend
+            final int processingProgress = (response['progress'] as num?)?.toInt() ?? 0;
+            // Ensure progress never decreases
+            newProgress = math.max(_progressPercent, processingProgress);
+            print('NORMAL progress tracking: $newProgress%');
+          }
         }
       } else if (status == 'generating_audio' && substage == 'post_processing') {
         // Post-processing is complete - show 100%
         newProgress = 100;
+        _inProcessingStage = false;
       } else if (status == 'finalizing') {
         // Finalizing means processing completed
         newProgress = 100;
+        _inProcessingStage = false;
       } else {
         // Any other stage - show 0% since we're waiting for processing
         newProgress = 0;
+        _inProcessingStage = false;
       }
+      
+      print('Setting progress to: $newProgress%');
       
       // Update the state
       setState(() {
