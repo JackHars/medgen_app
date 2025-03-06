@@ -338,7 +338,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             _statusMessage = 'Preparing for audio generation...';
             break;
           case 'generating_audio':
-            _statusMessage = 'Generating soothing audio for your meditation...';
+            // For audio generation, check if there's a substage available
+            final substage = response['substage'];
+            if (substage == 'initializing') {
+              _statusMessage = 'Setting up the voice generation model...';
+            } else if (substage == 'chunking') {
+              _statusMessage = 'Analyzing your meditation text...';
+            } else if (substage == 'processing') {
+              // Show which chunk is being processed
+              final current = response['current'] ?? 0;
+              final total = response['total'] ?? 1;
+              _statusMessage = 'Generating your meditation voice (part ${current} of ${total})...';
+            } else if (substage == 'post_processing') {
+              _statusMessage = 'Adding ambient background sounds to your meditation...';
+            } else {
+              _statusMessage = 'Generating soothing audio for your meditation...';
+            }
             break;
           case 'finalizing':
             _statusMessage = 'Finalizing your meditation...';

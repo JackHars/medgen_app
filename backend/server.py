@@ -7,7 +7,8 @@ import threading
 import json
 import traceback
 import sys
-from main import generate_meditation_script, generate_meditation_from_text
+from main import generate_meditation_script, generate_meditation_from_text, generate_tts, process_audio
+import time
 
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing
@@ -90,6 +91,103 @@ def generate_meditation():
             'details': error_details
         }), 500
 
+def generate_meditation_from_text_with_progress(text, background_path, output_path, progress_callback=None, **kwargs):
+    """
+    Wrapper for generate_meditation_from_text that adds progress reporting.
+    
+    Args:
+        text: The meditation script text
+        background_path: Path to background audio file
+        output_path: Where to save the output audio
+        progress_callback: Function to call with progress updates
+        **kwargs: Additional arguments to pass to generate_meditation_from_text
+    """
+    # Start by estimating text chunks
+    # Average English word is about 5 characters
+    # F5 processes roughly about 25 words per chunk (estimate)
+    words = text.split()
+    total_words = len(words)
+    estimated_chunks = max(1, total_words // 25)
+    
+    # Report initial setup
+    if progress_callback:
+        progress_callback('initializing')
+    
+    # Report text chunking step
+    if progress_callback:
+        progress_callback('chunking')
+    
+    # Create a temporary file for the TTS output
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+        tts_output_path = temp_file.name
+    
+    try:
+        # This is where the actual F5 TTS processing happens
+        # Since we can't directly hook into each batch processing,
+        # we'll simulate progress updates based on text length
+        
+        # Initialize F5-TTS and other setup
+        if progress_callback:
+            progress_callback('processing', 1, estimated_chunks)
+        
+        # Create a simulated chunk_monitor thread that updates progress
+        # while the TTS process is running
+        stop_monitor = False
+        
+        def chunk_monitor():
+            chunk = 1
+            while not stop_monitor and chunk < estimated_chunks:
+                time.sleep(max(0.5, 60 / estimated_chunks))  # Sleep time based on estimated chunks
+                if progress_callback:
+                    # Only update if we haven't reached the end
+                    if chunk < estimated_chunks:
+                        chunk += 1
+                        progress_callback('processing', chunk, estimated_chunks)
+        
+        # Start the monitor thread
+        if progress_callback:
+            monitor_thread = threading.Thread(target=chunk_monitor)
+            monitor_thread.daemon = True
+            monitor_thread.start()
+        
+        try:
+            # Generate the TTS audio 
+            generate_tts(
+                text, 
+                tts_output_path, 
+                # Pass through any relevant kwargs
+                **{k: v for k, v in kwargs.items() if k in [
+                    'ref_audio', 'ref_text', 'model_type', 'vocoder_name',
+                    'cfg_strength', 'nfe_step', 'speed', 'seed',
+                    'sway_sampling_coef', 'use_ema'
+                ]}
+            )
+        finally:
+            # Signal the monitor thread to stop
+            stop_monitor = True
+            if progress_callback:
+                # Ensure we report completion of processing stage
+                progress_callback('processing', estimated_chunks, estimated_chunks)
+        
+        # Report post-processing stage
+        if progress_callback:
+            progress_callback('post_processing')
+            
+        # Process audio with background
+        process_audio(tts_output_path, background_path, output_path, 
+                     time_resolution=kwargs.get('time_resolution', 0.25),
+                     bg_gain_db=kwargs.get('bg_gain_db', 20))
+        
+        return output_path
+        
+    finally:
+        # Clean up temporary file
+        if os.path.exists(tts_output_path):
+            try:
+                os.remove(tts_output_path)
+            except:
+                pass
+
 def process_meditation_job(job_id, user_worry):
     """
     Background process to generate meditation script and audio.
@@ -145,37 +243,66 @@ def process_meditation_job(job_id, user_worry):
         jobs[job_id]['progress'] = 45
         print(f"Starting audio generation for job {job_id}")
         
-        # The audio generation process has multiple substeps:
-        # We'll update progress at key points during generation
+        # Step 5.1: Text to speech conversion setup (45-90%)
+        # The audio generation in F5 happens in batches, so we need to track progress more precisely
         
-        # Create a progress callback function
-        def update_audio_progress(step, total_steps=5):
-            # Calculate progress between 45% and 95%
-            progress = 45 + (step / total_steps) * 50
-            jobs[job_id]['progress'] = min(95, int(progress))
-            print(f"Audio generation progress: {jobs[job_id]['progress']}%")
+        # Create a more granular progress callback function for F5 audio generation
+        def update_audio_progress(stage, current=0, total=100):
+            """
+            Update progress during audio generation
+            
+            Parameters:
+            - stage: String describing the current stage ('initializing', 'chunking', 'processing', 'finalizing')
+            - current: Current chunk/batch being processed
+            - total: Total chunks/batches to process
+            """
+            # F5 audio generation happens between 45% and 90% of the overall process
+            # Map the current/total within this range
+            progress_base = 45
+            progress_max = 90
+            progress_range = progress_max - progress_base
+            
+            # Calculate base progress based on stage
+            if stage == 'initializing':
+                # Initializing model (45-50%)
+                stage_progress = 0
+            elif stage == 'chunking':
+                # Text chunking stage (50-55%)
+                stage_progress = 0.1
+            elif stage == 'processing':
+                # Main processing stage - this is where most time is spent (55-85%)
+                # Here we use the current/total to track batch progress
+                stage_progress = 0.2 + (0.6 * (current / total))
+            elif stage == 'post_processing':
+                # Audio post-processing (85-90%)
+                stage_progress = 0.9
+            else:
+                # Default fallback
+                stage_progress = 0.5
+            
+            # Calculate overall progress in the 45-90% range
+            overall_progress = progress_base + (progress_range * stage_progress)
+            
+            # Update job progress and substage information
+            jobs[job_id]['progress'] = min(progress_max, int(overall_progress))
+            jobs[job_id]['audio_substage'] = stage
+            
+            # Store current and total for processing stage
+            if stage == 'processing':
+                jobs[job_id]['audio_current'] = current
+                jobs[job_id]['audio_total'] = total
+                
+            print(f"Audio generation progress: Stage={stage}, Progress={jobs[job_id]['progress']}%")
         
-        # Step 5.1: Text to speech conversion (50%)
-        update_audio_progress(1)
-        
-        # Step 5.2: Audio processing starts (60%)
-        update_audio_progress(2)
-        
-        # Step 5.3: Stretching background (70%)
-        update_audio_progress(3)
-        
-        # Step 5.4: Mixing audio (80%)
-        update_audio_progress(4)
-        
-        # Step 5.5: Finalizing audio (90%)
-        update_audio_progress(5)
-        
-        # Generate the meditation audio
+        # Generate the meditation audio with progress tracking
         print(f"Generating meditation audio for job {job_id}")
-        generate_meditation_from_text(
+        
+        # Now use our new function with progress callback
+        generate_meditation_from_text_with_progress(
             meditation_script,
             background_path,
-            output_path
+            output_path,
+            progress_callback=update_audio_progress
         )
         
         # Check if audio was generated successfully
@@ -207,35 +334,41 @@ def process_meditation_job(job_id, user_worry):
 @app.route('/api/meditation-status/<job_id>', methods=['GET'])
 def meditation_status(job_id):
     """
-    API endpoint to check the status of a meditation generation job.
-    Returns the current status, progress, and results if ready.
+    Check the status of a meditation generation job.
     """
     if job_id not in jobs:
-        return jsonify({'error': 'Job not found'}), 404
+        return jsonify({
+            'status': 'error',
+            'error': f'Job ID {job_id} not found'
+        }), 404
     
     job = jobs[job_id]
     
-    # For completed jobs, include the meditation script and audio URL
-    if job['status'] == 'completed':
-        return jsonify({
-            'status': 'completed',
-            'progress': 100,
-            'meditation_script': job['meditation_script'],
-            'audio_url': job['audio_url']
-        })
+    # Basic response with status and progress
+    response = {
+        'status': job.get('status', 'pending'),
+        'progress': job.get('progress', 0)
+    }
     
-    # For error jobs, include the error message
-    elif job['status'] == 'error':
-        return jsonify({
-            'status': 'error',
-            'error': job.get('error', 'Unknown error')
-        })
+    # If the job is in the audio generation phase, include substage information
+    if job.get('status') == 'generating_audio' and 'audio_substage' in job:
+        response['substage'] = job.get('audio_substage')
+        
+        # Include current and total for processing stage
+        if job.get('audio_substage') == 'processing':
+            response['current'] = job.get('audio_current', 1)
+            response['total'] = job.get('audio_total', 1)
     
-    # For pending or in-progress jobs
-    return jsonify({
-        'status': job['status'],
-        'progress': job['progress']
-    })
+    # If the job is completed, include the meditation script and audio URL
+    if job.get('status') == 'completed':
+        response['meditation_script'] = job.get('meditation_script', '')
+        response['audio_url'] = job.get('audio_url', '')
+    
+    # If there was an error, include the error message
+    if job.get('status') == 'error':
+        response['error'] = job.get('error', 'Unknown error')
+    
+    return jsonify(response)
 
 @app.route('/api/meditation-audio/<job_id>', methods=['GET'])
 def get_meditation_audio(job_id):
