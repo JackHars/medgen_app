@@ -80,10 +80,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _lastServerProgress = 0;
   DateTime? _progressStartTime;
   DateTime? _lastProgressUpdateTime;
-  // Simplified stage weights - just script generation and audio generation
+  // Rebalanced stage weights - 10% for script, 90% for audio
   Map<String, int> _stageWeights = {
-    'generating_script': 30, // Script generation is faster
-    'generating_audio': 70,  // Audio generation takes most of the time
+    'generating_script': 10, // Script generation (minimal weight)
+    'generating_audio': 90,  // Audio generation (majority of time)
   };
   Map<String, int> _audioSubstageWeights = {
     'initializing': 5,
@@ -352,81 +352,88 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Track completion of each stage
       if (status == 'initializing') {
         // Consider initialization as part of script generation
-        estimatedProgress = 5; // Start with a small progress indication
+        estimatedProgress = 2; // Starting indication
       } else if (status == 'generating_script') {
-        // Script generation (0-30%)
+        // Script generation (0-10%)
         final int scriptProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress = (scriptProgress * 30) ~/ 100;
+        estimatedProgress = (scriptProgress * 10) ~/ 100;
       } else if (status == 'preparing_audio') {
-        // Completed script generation, preparing for audio (30-35%)
-        estimatedProgress = 30; // Script generation complete
+        // Completed script generation, preparing for audio (10-20%)
+        estimatedProgress = 10; // Script generation complete
         final int preparingProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress += (preparingProgress * 5) ~/ 100; // Small weight for preparation
+        estimatedProgress += (preparingProgress * 10) ~/ 100; // Increased weight for preparation
       } else if (status == 'generating_audio') {
-        // Script generation complete, now generating audio (35-95%)
-        estimatedProgress = 35; // Script generation + preparation complete
-        
-        // Calculate audio generation progress
-        final int audioRemainingWeight = 60; // 95% - 35% = 60% for audio generation
-        
-        if (substage == null) {
-          // If no substage, assume halfway through audio generation
-          estimatedProgress += (audioRemainingWeight ~/ 2);
-        } else {
-          // Calculate based on substage within audio generation
-          double audioProgress = 0;
+        // Process different substages
+        if (substage == 'initializing' || substage == 'chunking') {
+          // These are now part of preparation phase (10-20%)
+          estimatedProgress = 10;
+          final int prepProgress = (response['progress'] as num?)?.toInt() ?? 0;
           
+          // Distribute weights: initializing (10-15%), chunking (15-20%)
           if (substage == 'initializing') {
-            audioProgress = 0.05; // Just started audio
-          } else if (substage == 'chunking') {
-            audioProgress = 0.15; // Chunking phase
-          } else if (substage == 'processing') {
-            // Processing phase - this takes the longest
-            final int current = response['current'] ?? 1;
-            final int total = response['total'] ?? 1;
+            estimatedProgress += 5 * prepProgress ~/ 100; // 10-15%
+          } else { // chunking
+            estimatedProgress = 15; // initializing complete
+            estimatedProgress += 5 * prepProgress ~/ 100; // 15-20%
+          }
+        } else if (substage == 'processing') {
+          // Only processing counts as audio generation (20-90%)
+          estimatedProgress = 20; // Preparation phases complete
+          
+          // Calculate audio generation progress for processing only
+          final int audioWeight = 70; // 90% - 20% = 70% for processing
+          
+          final int current = response['current'] ?? 1;
+          final int total = response['total'] ?? 1;
+          
+          // Calculate progress within processing
+          double processingProgress = 0.0;
+          if (total > 0) {
+            // Add progress based on current batch
+            processingProgress = current / total;
             
-            // Calculate progress within processing (15-85% of audio weight)
-            double processingProgress = 0.15; // Start at 15%
-            if (total > 0) {
-              // Add progress based on current batch
-              processingProgress += 0.7 * (current / total);
-            } else {
-              // If no batch info, use time-based estimation
-              final now = DateTime.now();
-              final elapsedSinceLastUpdate = now.difference(_lastProgressUpdateTime!).inMilliseconds;
-              
-              // Advance slowly every poll
-              if (elapsedSinceLastUpdate > 1500) {
-                processingProgress += 0.01 * (_pollCount % 3 + 1);
-                _lastProgressUpdateTime = now;
-              }
+            // Ensure progress doesn't get stuck at the beginning
+            if (processingProgress < 0.05 && _pollCount > 5) {
+              processingProgress = 0.05;
             }
+          } else {
+            // If no batch info, use time-based estimation
+            final now = DateTime.now();
+            final elapsedSinceLastUpdate = now.difference(_lastProgressUpdateTime!).inMilliseconds;
+            final totalElapsedInProcessing = now.difference(_progressStartTime!).inMilliseconds;
             
-            // Allow processing to reach 100% of its allocated range
-            // This ensures we can get to 95% naturally and avoid getting
-            // stuck at 89%
-            audioProgress = processingProgress;
-            
-            // Once we reach 85% of audio progress, we should be 
-            // transitioning to post_processing, but in case we're stuck,
-            // force-advance to 95% after a prolonged period at high progress
-            if (audioProgress >= 0.85) {
-              final now = DateTime.now();
-              final elapsedAtHighProgress = now.difference(_lastProgressUpdateTime!).inMilliseconds;
-              
-              // If we've been at high progress for more than 10 seconds,
-              // assume we're actually in post-processing and boost accordingly
-              if (elapsedAtHighProgress > 10000) {
-                audioProgress = 0.9 + ((elapsedAtHighProgress - 10000) / 30000).clamp(0.0, 0.05);
-                _lastProgressUpdateTime = now;
+            // Create a more natural progression based on time
+            if (elapsedSinceLastUpdate > 1500) {
+              // Slow start, then accelerate, then slow finish
+              if (totalElapsedInProcessing < 30000) {
+                // First 30 seconds: 10-30%
+                processingProgress = 0.1 + (totalElapsedInProcessing / 150000);
+              } else if (totalElapsedInProcessing < 90000) {
+                // 30-90 seconds: 30-70%
+                processingProgress = 0.3 + ((totalElapsedInProcessing - 30000) / 85714);
+              } else {
+                // After 90 seconds: 70-100%
+                processingProgress = 0.7 + ((totalElapsedInProcessing - 90000) / 300000);
               }
+              
+              // Cap at 0.95 until we know we're done
+              processingProgress = math.min(0.95, processingProgress);
+              _lastProgressUpdateTime = now;
             }
-          } else if (substage == 'post_processing') {
-            audioProgress = 0.9; // Almost done with audio
           }
           
           // Apply the calculated audio progress to the audio weight
-          estimatedProgress += (audioProgress * audioRemainingWeight).toInt();
+          estimatedProgress += (processingProgress * audioWeight).toInt();
+          
+          // Long-running processing should eventually reach 90%
+          final now = DateTime.now();
+          final totalElapsedInProcessing = now.difference(_progressStartTime!).inMilliseconds;
+          if (totalElapsedInProcessing > 180000 && estimatedProgress < 85) {
+            // If processing for over 3 minutes, force to at least 85%
+            estimatedProgress = 85;
+          }
+        } else if (substage == 'post_processing') {
+          estimatedProgress = 90; // Almost done with audio
         }
       } else if (status == 'finalizing') {
         // Treat finalizing as completing the audio generation (95-100%)
@@ -451,27 +458,28 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // Get next milestone based on current status
         int nextMilestone = 100;
         if (status == 'generating_script') {
-          nextMilestone = 30;
+          nextMilestone = 10;
         } else if (status == 'preparing_audio') {
-          nextMilestone = 35;
+          nextMilestone = 20;
         } else if (status == 'generating_audio') {
           if (substage == 'initializing') {
-            nextMilestone = 40;
+            nextMilestone = 15; // Part of preparation now
           } else if (substage == 'chunking') {
-            nextMilestone = 45;
+            nextMilestone = 20; // Part of preparation now
           } else if (substage == 'processing') {
-            // For processing, allow progress to go higher over time
-            // to prevent getting stuck
+            // Processing is the only actual audio generation phase now
             final timeInProcessing = now.difference(_progressStartTime!).inMilliseconds;
-            if (timeInProcessing > 60000) { // If in processing for more than 1 minute
-              nextMilestone = 95; // Allow it to reach post-processing levels
+            if (timeInProcessing > 120000) { // If in processing for more than 2 minutes
+              nextMilestone = 90; // Allow it to reach completion levels
+            } else if (timeInProcessing > 60000) { // If in processing for more than 1 minute
+              nextMilestone = 80; // Allow higher progress after a minute
             } else {
-              nextMilestone = 90;
+              nextMilestone = 70; // Normal milestone for processing
             }
           } else if (substage == 'post_processing') {
-            nextMilestone = 95;
+            nextMilestone = 95; // Post-processing is near completion
           } else {
-            nextMilestone = 85;
+            nextMilestone = 50; // Default for audio generation
           }
         } else if (status == 'finalizing') {
           nextMilestone = 99;
@@ -502,18 +510,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Ensure progress never goes backwards
       estimatedProgress = math.max(estimatedProgress, _progressPercent);
       
-      // Force completion after maximum duration (3.5 minutes)
+      // Force completion after maximum duration
       final int totalElapsed = now.difference(_progressStartTime!).inMilliseconds;
-      if (totalElapsed > 210000 && estimatedProgress > 80) {
-        // After 3.5 minutes, if we're past 80%, force completion
+      if ((totalElapsed > 240000 && estimatedProgress > 40) || // 4 minutes and past 40%
+          (totalElapsed > 180000 && estimatedProgress > 70) || // 3 minutes and past 70%
+          (totalElapsed > 120000 && estimatedProgress > 85)) { // 2 minutes and past 85%
+        // Force progress to near completion
         if (status != 'completed') {
           // Set to 99% and add completion message
           estimatedProgress = 99;
-          print('Forcing progress to 99% after timeout');
+          print('Forcing progress to 99% after timeout: ${totalElapsed/1000}s, progress: $estimatedProgress%');
         }
       }
+      
       // Cap progress at 99% until complete
-      else if (status != 'completed' && estimatedProgress >= 99) {
+      if (status != 'completed' && estimatedProgress >= 99) {
         estimatedProgress = 99;
       }
       
