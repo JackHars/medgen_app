@@ -364,7 +364,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         
         // Start a smooth progress timer that increments from 0% to 99% over 3 minutes
         // This is purely time-based and doesn't use any values from the server
-        _progressTimer = Timer.periodic(const Duration(milliseconds: 3000), (timer) {
+        _progressTimer = Timer.periodic(const Duration(milliseconds: 1500), (timer) {
           setState(() {
             // Cap at 99% - we'll set to 100% only when complete
             if (_progressPercent < 99) {
