@@ -227,12 +227,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         _isPlaying = false;
       });
     } else {
-      // Either start playing or resume
+      // Show pause button immediately for better UX
+      setState(() {
+        _isPlaying = true;
+        // We'll keep _isAudioLoading internal and not show it in the UI
+        _isAudioLoading = true;
+      });
+      
       try {
-        setState(() {
-          _isAudioLoading = true;
-        });
-        
         // If we haven't loaded the audio yet, load it
         if (_audioPlayer.duration == null) {
           // If it's a relative URL, prepend the base URL
@@ -249,9 +251,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           await _audioPlayer.play();
         }
         
+        // Update state once loading is complete
         setState(() {
           _isAudioLoading = false;
-          _isPlaying = true;
         });
       } catch (e) {
         print('Error playing audio: $e');
@@ -739,20 +741,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                           // Play/Pause button
                                           IconButton(
                                             onPressed: _togglePlayPause,
-                                            icon: _isAudioLoading 
-                                                ? const SizedBox(
-                                                    width: 24,
-                                                    height: 24,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
-                                                    ),
-                                                  )
-                                                : Icon(
-                                                    _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                                                    color: Theme.of(context).colorScheme.primary,
-                                                    size: 40,
-                                                  ),
+                                            icon: Icon(
+                                                _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                                                color: Theme.of(context).colorScheme.primary,
+                                                size: 40,
+                                            ),
                                           ),
                                           const SizedBox(width: 8),
                                           
@@ -815,9 +808,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        _isAudioLoading
-                                            ? 'Loading audio...'
-                                            : 'Listen to your guided meditation',
+                                        'Listen to your guided meditation',
                                         style: GoogleFonts.inter(
                                           fontSize: 12,
                                           color: Colors.white.withOpacity(0.7),
