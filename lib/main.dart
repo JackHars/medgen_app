@@ -842,6 +842,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                                       fontSize: 12,
                                                       color: Colors.white.withOpacity(0.7),
                                                     ),
+                                                  ),
                                                   // Total duration
                                                   Text(
                                                     _formatDuration(_audioDuration?.inSeconds ?? 0),
