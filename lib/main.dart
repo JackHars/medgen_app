@@ -76,6 +76,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _progressPercent = 0;
   String _statusMessage = '';
   
+  // Progress tracking for smoother updates
+  int _lastServerProgress = 0;
+  DateTime? _progressStartTime;
+  DateTime? _lastProgressUpdateTime;
+  Map<String, int> _stageWeights = {
+    'initializing': 5,
+    'generating_script': 15,
+    'preparing_audio': 5,
+    'generating_audio': 70,
+    'finalizing': 5,
+  };
+  Map<String, int> _audioSubstageWeights = {
+    'initializing': 5,
+    'chunking': 10,
+    'processing': 75, // Processing takes most of the audio generation time
+    'post_processing': 10,
+  };
+  
   // Audio player state
   bool _isPlaying = false;
   bool _isAudioLoading = false;
@@ -293,10 +311,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     
     // Initialize polling variables
     _pollCount = 0;
+    _lastServerProgress = 0;
+    _progressStartTime = DateTime.now();
+    _lastProgressUpdateTime = _progressStartTime;
     
     setState(() {
       _statusMessage = 'Starting meditation generation...';
-      _progressPercent = 5; // Start with a small progress indication
+      _progressPercent = 0; // Start with 0% progress
     });
     
     // Start polling
@@ -323,29 +344,105 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     try {
       final response = await ApiService.getMeditationStatus(_jobId!);
       
-      // Store the previous progress for comparison
-      final previousProgress = _progressPercent;
+      // Get the current status and substage
+      final String status = response['status'] ?? 'pending';
+      final String? substage = response['substage'];
       
-      // Get the server-reported progress
-      final serverProgress = response['progress'] ?? previousProgress;
+      // Calculate weighted progress based on stages
+      int estimatedProgress = 0;
+      
+      // Track completion of each stage
+      if (status == 'initializing') {
+        estimatedProgress = (_stageWeights['initializing'] ?? 5) ~/ 2;
+      } else if (status == 'generating_script') {
+        estimatedProgress = _stageWeights['initializing'] ?? 5;
+        // Add partial progress for script generation (0-100% of its weight)
+        final scriptProgress = response['progress'] ?? 0;
+        estimatedProgress += ((scriptProgress / 100) * (_stageWeights['generating_script'] ?? 15)).toInt();
+      } else if (status == 'preparing_audio') {
+        // Completed initializing and script generation
+        estimatedProgress = (_stageWeights['initializing'] ?? 5) + (_stageWeights['generating_script'] ?? 15);
+        // Add partial progress for audio preparation (0-100% of its weight)
+        final preparingProgress = response['progress'] ?? 0;
+        estimatedProgress += ((preparingProgress / 100) * (_stageWeights['preparing_audio'] ?? 5)).toInt();
+      } else if (status == 'generating_audio') {
+        // Completed initializing, script generation, and audio preparation
+        estimatedProgress = (_stageWeights['initializing'] ?? 5) + 
+                           (_stageWeights['generating_script'] ?? 15) + 
+                           (_stageWeights['preparing_audio'] ?? 5);
+                           
+        // Calculate audio generation progress based on substage
+        final audioWeight = _stageWeights['generating_audio'] ?? 70;
+        
+        if (substage == null) {
+          // If no substage, assume halfway through audio generation
+          estimatedProgress += (audioWeight ~/ 2);
+        } else {
+          // Calculate based on substage weights
+          double audioProgress = 0;
+          
+          if (substage == 'initializing') {
+            audioProgress = 0.05; // Just started audio
+          } else if (substage == 'chunking') {
+            audioProgress = 0.15; // Chunking phase
+          } else if (substage == 'processing') {
+            // Processing phase - this takes the longest
+            // Get the current/total batch info if available
+            final int current = response['current'] ?? 1;
+            final int total = response['total'] ?? 1;
+            
+            // Calculate progress within processing (10-85% of audio weight)
+            double processingProgress = 0.15; // Start at 15%
+            if (total > 0) {
+              // Add progress based on current batch
+              processingProgress += 0.7 * (current / total);
+            } else {
+              // If no batch info, use time-based estimation
+              final now = DateTime.now();
+              final elapsedSinceLastUpdate = now.difference(_lastProgressUpdateTime!).inMilliseconds;
+              
+              // Advance slowly every poll (0.5-1% per poll)
+              if (elapsedSinceLastUpdate > 1500) {
+                processingProgress += 0.01 * (_pollCount % 3 + 1);
+                _lastProgressUpdateTime = now;
+              }
+            }
+            
+            // Cap at 85%
+            audioProgress = math.min(processingProgress, 0.85);
+          } else if (substage == 'post_processing') {
+            audioProgress = 0.9; // Almost done with audio
+          }
+          
+          // Apply the calculated audio progress to the audio weight
+          estimatedProgress += (audioProgress * audioWeight).toInt();
+        }
+      } else if (status == 'finalizing') {
+        // All previous stages complete, now finalizing
+        estimatedProgress = 100 - (_stageWeights['finalizing'] ?? 5);
+        // Add partial progress for finalizing (0-100% of its weight)
+        final finalizingProgress = response['progress'] ?? 0;
+        estimatedProgress += ((finalizingProgress / 100) * (_stageWeights['finalizing'] ?? 5)).toInt();
+      } else if (status == 'completed') {
+        estimatedProgress = 100;
+      }
+      
+      // Store the server's progress for reference
+      _lastServerProgress = response['progress'] ?? _lastServerProgress;
+      
+      // Ensure progress never goes backwards
+      estimatedProgress = math.max(estimatedProgress, _progressPercent);
+      
+      // Cap progress at 99% until complete
+      if (status != 'completed' && estimatedProgress >= 99) {
+        estimatedProgress = 99;
+      }
       
       setState(() {
-        // Always use server progress if it's higher than current progress
-        if (serverProgress > _progressPercent) {
-          _progressPercent = serverProgress;
-        }
-        // Only allow small increments if progress appears stuck
-        else if (_progressPercent == previousProgress && _pollCount % 3 == 0) {
-          // Add a tiny increment just to show some movement, but never exceed the next major milestone
-          final nextMilestone = _getNextProgressMilestone(serverProgress);
-          final increment = 1;
-          if (_progressPercent + increment < nextMilestone) {
-            _progressPercent += increment;
-          }
-        }
+        // Update progress percentage using our calculated value
+        _progressPercent = estimatedProgress;
         
         // Update status message based on server status
-        final status = response['status'];
         switch (status) {
           case 'initializing':
             _statusMessage = 'Initializing your meditation...';
@@ -358,7 +455,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             break;
           case 'generating_audio':
             // For audio generation, use different messages for each substage
-            final substage = response['substage'];
             if (substage == 'initializing') {
               _statusMessage = 'Setting up the voice generation model...';
             } else if (substage == 'chunking') {
@@ -388,6 +484,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           _audioUrl = response['audio_url'];
           _isLoading = false;
           _statusMessage = '';
+          _progressPercent = 100; // Ensure we show 100% when complete
         });
       }
       
@@ -817,7 +914,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                             color: Colors.white70,
                                             onPressed: _downloadAudio,
                                             tooltip: 'Download meditation',
-                                          ),
+                                        ),
                                       ],
                                     ),
                                     const SizedBox(height: 4),
@@ -1009,21 +1106,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  // Helper method to determine the next progress milestone
-  int _getNextProgressMilestone(int currentProgress) {
-    final milestones = [5, 15, 35, 45, 52, 60, 70, 80, 85, 90, 95, 100];
-    for (final milestone in milestones) {
-      if (milestone > currentProgress) {
-        return milestone;
-      }
-    }
-    return 100;
+  // Helper method to format duration
+  String _formatDuration(num seconds) {
+    final int mins = seconds ~/ 60;
+    final int secs = seconds.toInt() % 60;
+    return '$mins:${secs.toString().padLeft(2, '0')}';
   }
-}
-
-// Helper method to format duration
-String _formatDuration(num seconds) {
-  final int mins = seconds ~/ 60;
-  final int secs = seconds.toInt() % 60;
-  return '$mins:${secs.toString().padLeft(2, '0')}';
 }
