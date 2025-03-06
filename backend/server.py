@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, redirect
 from flask_cors import CORS
 import os
 import tempfile
@@ -17,6 +17,17 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 # In-memory job status tracking
 jobs = {}
+
+@app.route('/')
+def index():
+    """
+    Root route that provides information about the API and redirects to the web application
+    """
+    return jsonify({
+        'name': 'Oneiro Meditation Generator API',
+        'status': 'running',
+        'message': 'This is the API server. The web application is available at http://127.0.0.1:8080'
+    })
 
 @app.route('/api/generate-meditation', methods=['POST'])
 def generate_meditation():
@@ -161,4 +172,4 @@ def health_check():
     return jsonify({'status': 'ok'})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True) 
+    app.run(host='127.0.0.1', port=5000, debug=False) 

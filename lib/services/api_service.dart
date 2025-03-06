@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 class ApiService {
   // Update with the backend URL
   static const String baseUrl = kDebugMode 
-      ? 'http://localhost:5000' // Local development
+      ? 'http://127.0.0.1:5000' // Local development
       : 'https://api.oneiro.ai'; // Production
   
   // Method to generate a meditation based on stress description

@@ -35,7 +35,7 @@ echo -e "${GREEN}Starting Python backend server...${NC}"
 cd backend
 echo -e "${YELLOW}Installing Python dependencies...${NC}"
 pip install -r requirements.txt
-echo -e "${GREEN}Starting server on http://localhost:5000${NC}"
+echo -e "${GREEN}Starting server on http://127.0.0.1:5000 (localhost only)${NC}"
 python3 server.py &
 BACKEND_PID=$!
 cd ..
@@ -48,8 +48,8 @@ echo -e "${YELLOW}Installing Flutter dependencies...${NC}"
 flutter pub get
 
 # Start Flutter web app
-echo -e "${GREEN}Starting Flutter web application...${NC}"
-flutter run -d chrome &
+echo -e "${GREEN}Starting Flutter web application in production mode...${NC}"
+flutter run --release -d chrome --web-hostname 127.0.0.1 --web-port 8080 &
 FLUTTER_PID=$!
 
 # Wait for user to press Ctrl+C
