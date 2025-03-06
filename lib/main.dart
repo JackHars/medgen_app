@@ -383,40 +383,61 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               processingProgress = 0.05;
             }
           } else {
-            // If no batch info, use time-based estimation
+            // If no batch info, use a MUCH more conservative time-based estimation
             final now = DateTime.now();
             final elapsedSinceLastUpdate = now.difference(_lastProgressUpdateTime!).inMilliseconds;
             final totalElapsedInProcessing = now.difference(_progressStartTime!).inMilliseconds;
             
-            // Create a more natural progression based on time
+            // Create a much slower progression based on time
             if (elapsedSinceLastUpdate > 1500) {
-              // Slow start, then accelerate, then slow finish
-              if (totalElapsedInProcessing < 30000) {
-                // First 30 seconds: 10-30%
-                processingProgress = 0.1 + (totalElapsedInProcessing / 150000);
-              } else if (totalElapsedInProcessing < 90000) {
-                // 30-90 seconds: 30-70%
-                processingProgress = 0.3 + ((totalElapsedInProcessing - 30000) / 85714);
+              // VASTLY slower progression with careful caps
+              
+              // Assume a normal meditation takes 3-5 minutes to generate
+              // Scale progress very conservatively
+              if (totalElapsedInProcessing < 60000) {
+                // First minute: only reach 20%
+                processingProgress = 0.05 + (totalElapsedInProcessing / 400000);
+                // Cap at 20%
+                processingProgress = math.min(0.2, processingProgress);
+              } else if (totalElapsedInProcessing < 120000) {
+                // 1-2 minutes: 20-40%
+                processingProgress = 0.2 + ((totalElapsedInProcessing - 60000) / 300000);
+                // Cap at 40%
+                processingProgress = math.min(0.4, processingProgress);
+              } else if (totalElapsedInProcessing < 180000) {
+                // 2-3 minutes: 40-60% 
+                processingProgress = 0.4 + ((totalElapsedInProcessing - 120000) / 300000);
+                // Cap at 60%
+                processingProgress = math.min(0.6, processingProgress);
+              } else if (totalElapsedInProcessing < 240000) {
+                // 3-4 minutes: 60-75%
+                processingProgress = 0.6 + ((totalElapsedInProcessing - 180000) / 400000);
+                // Cap at 75%
+                processingProgress = math.min(0.75, processingProgress);
               } else {
-                // After 90 seconds: 70-100%
-                processingProgress = 0.7 + ((totalElapsedInProcessing - 90000) / 300000);
+                // After 4 minutes: very slow climb to 85% 
+                processingProgress = 0.75 + ((totalElapsedInProcessing - 240000) / 1200000);
+                // Hard cap at 85% - never show more until we're actually done
+                processingProgress = math.min(0.85, processingProgress);
               }
               
-              // Cap at 0.95 until we know we're done
-              processingProgress = math.min(0.95, processingProgress);
               _lastProgressUpdateTime = now;
+              
+              // Add a slight random jitter to make the progress look natural
+              // This also forces small jitters in the UI even at cap points
+              processingProgress += (_random.nextDouble() * 0.003) - 0.0015;
             }
           }
           
           // Apply the calculated audio progress to the audio weight
           estimatedProgress += (processingProgress * audioWeight).toInt();
           
-          // Long-running processing should eventually reach 90%
+          // Only force progress to 75% at the absolute most, and only after a LONG time
           final now = DateTime.now();
           final totalElapsedInProcessing = now.difference(_progressStartTime!).inMilliseconds;
-          if (totalElapsedInProcessing > 180000 && estimatedProgress < 85) {
-            // If processing for over 3 minutes, force to at least 85%
-            estimatedProgress = 85;
+          if (totalElapsedInProcessing > 300000 && estimatedProgress < 70) { // 5+ minutes
+            // If processing for over 5 minutes, force to at least 70%
+            estimatedProgress = 70;
           }
         } else if (substage == 'post_processing') {
           estimatedProgress = 90; // Processing is complete, final touches
@@ -455,12 +476,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           } else if (substage == 'processing') {
             // Processing is the ONLY phase that contributes to progress
             final timeInProcessing = now.difference(_progressStartTime!).inMilliseconds;
-            if (timeInProcessing > 120000) { // If in processing for more than 2 minutes
-              nextMilestone = 90; // Allow it to reach completion levels
+            if (timeInProcessing > 300000) { // If in processing for more than 5 minutes
+              nextMilestone = 75; // Max milestone until truly near completion
+            } else if (timeInProcessing > 180000) { // If in processing for more than 3 minutes
+              nextMilestone = 65; // Allow higher progress after 3 minutes
             } else if (timeInProcessing > 60000) { // If in processing for more than 1 minute
-              nextMilestone = 70; // Allow higher progress after a minute
+              nextMilestone = 50; // Allow moderate progress after a minute
             } else {
-              nextMilestone = 50; // Normal milestone for processing
+              nextMilestone = 30; // Very conservative early milestone
             }
           } else if (substage == 'post_processing') {
             nextMilestone = 95; // Post-processing is near completion
@@ -496,22 +519,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Ensure progress never goes backwards
       estimatedProgress = math.max(estimatedProgress, _progressPercent);
       
-      // Force completion after maximum duration
+      // Much more conservative force completion logic - never force to 99% too early
       final int totalElapsed = now.difference(_progressStartTime!).inMilliseconds;
-      if ((totalElapsed > 240000 && estimatedProgress > 40) || // 4 minutes and past 40%
-          (totalElapsed > 180000 && estimatedProgress > 70) || // 3 minutes and past 70%
-          (totalElapsed > 120000 && estimatedProgress > 85)) { // 2 minutes and past 85%
-        // Force progress to near completion
+      if ((totalElapsed > 480000) || // Absolute max time = 8 minutes, force to 99%
+          (totalElapsed > 360000 && estimatedProgress > 70) || // 6 minutes and past 70%
+          (totalElapsed > 240000 && estimatedProgress > 85)) { // 4 minutes and past 85%
+        // Force progress to near completion, but only if it's reasonably far along
         if (status != 'completed') {
-          // Set to 99% and add completion message
-          estimatedProgress = 99;
-          print('Forcing progress to 99% after timeout: ${totalElapsed/1000}s, progress: $estimatedProgress%');
+          // Only force to 95% - this lets user know it's almost done but not quite
+          estimatedProgress = 95;
+          print('Forcing progress to 95% after long timeout: ${totalElapsed/1000}s, progress: $estimatedProgress%');
         }
-      }
-      
-      // Cap progress at 99% until complete
-      if (status != 'completed' && estimatedProgress >= 99) {
-        estimatedProgress = 99;
       }
       
       setState(() {
