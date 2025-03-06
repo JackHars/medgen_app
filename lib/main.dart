@@ -75,7 +75,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _pollCount = 0;
   int _progressPercent = 0;
   String _statusMessage = '';
-  Map<String, dynamic>? _lastResponseData; // Store the most recent API response
   
   // Progress tracking for smoother updates
   int _lastServerProgress = 0;
@@ -304,134 +303,198 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
+  void _startPollingJobStatus() {
+    // Cancel any existing timer
+    _pollingTimer?.cancel();
+    
+    // Initialize polling variables
+    _pollCount = 0;
+    _lastServerProgress = 0;
+    _progressStartTime = DateTime.now();
+    _lastProgressUpdateTime = _progressStartTime;
+    
+    setState(() {
+      _statusMessage = 'Starting meditation generation...';
+      _progressPercent = 0; // Start with 0% progress
+    });
+    
+    // Start polling
+    _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      _pollJobStatus();
+      
+      // Increment poll count
+      _pollCount++;
+      
+      // If we've been polling for too long (10 minutes), stop
+      if (_pollCount > 300) {
+        timer.cancel();
+        setState(() {
+          _isLoading = false;
+          _meditation = 'Sorry, the meditation is taking longer than expected. Please try again.';
+        });
+      }
+    });
+  }
+  
   Future<void> _pollJobStatus() async {
     if (_jobId == null) return;
     
     try {
       final response = await ApiService.getMeditationStatus(_jobId!);
       
-      // Store the most recent response for use in status messages
-      _lastResponseData = response;
-      
       // Get the current status and substage
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
       
-      // Get current batch and total batches
-      final int currentBatch = (response['current'] as num?)?.toInt() ?? 0;
-      final int totalBatches = (response['total'] as num?)?.toInt() ?? 0;
-      
-      // Log batch information for debugging
-      if (substage == 'processing' && totalBatches > 0) {
-        print('F5 TTS Processing: Batch $currentBatch of $totalBatches (${(currentBatch * 100 / totalBatches).toStringAsFixed(1)}%)');
-      }
-      
-      // Current time for calculations
-      final now = DateTime.now();
-      
-      // Calculate time elapsed since polling started
-      final int totalElapsedMs = _progressStartTime != null 
-          ? now.difference(_progressStartTime!).inMilliseconds 
-          : 0;
-      
-      // Time since last update to determine if we need to apply artificial progress
-      final int elapsedSinceLastUpdateMs = _lastProgressUpdateTime != null 
-          ? now.difference(_lastProgressUpdateTime!).inMilliseconds 
-          : 0;
-      
-      // Calculate progress based on the current status
+      // Calculate weighted progress based on stages
       int estimatedProgress = 0;
       
-      // Allocate progress: 15% for text generation, 85% for audio generation
+      // Track completion of each stage
       if (status == 'initializing') {
-        // Initialization (0-3%)
-        estimatedProgress = 3;
+        // Consider initialization as part of script generation
+        estimatedProgress = 5; // Start with a small progress indication
       } else if (status == 'generating_script') {
-        // Script generation (0-15%)
+        // Script generation (0-30%)
         final int scriptProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress = (scriptProgress * 15) ~/ 100;
+        estimatedProgress = (scriptProgress * 30) ~/ 100;
       } else if (status == 'preparing_audio') {
-        // Audio preparation (15-20%)
-        estimatedProgress = 15; // Script generation complete
+        // Completed script generation, preparing for audio (30-35%)
+        estimatedProgress = 30; // Script generation complete
         final int preparingProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress += (preparingProgress * 5) ~/ 100;
+        estimatedProgress += (preparingProgress * 5) ~/ 100; // Small weight for preparation
       } else if (status == 'generating_audio') {
-        // Audio generation (20-95%)
-        // Base audio progress starts at 20% (after script generation)
-        estimatedProgress = 20;
+        // Script generation complete, now generating audio (35-95%)
+        estimatedProgress = 35; // Script generation + preparation complete
         
-        // The backend allocates 45-90% for audio generation (45% range)
-        // We need to map this to our 20-95% range (75% range)
-        final int backendProgress = (response['progress'] as num?)?.toInt() ?? 45;
+        // Calculate audio generation progress
+        final int audioRemainingWeight = 60; // 95% - 35% = 60% for audio generation
         
-        // Enhanced batch tracking for the 'processing' substage
-        if (substage == 'processing' && totalBatches > 0 && currentBatch > 0) {
-          // Calculate progress based on actual reported batch progress
-          // Audio processing is allocated 30-85% in our scale (55% range)
+        if (substage == null) {
+          // If no substage, assume halfway through audio generation
+          estimatedProgress += (audioRemainingWeight ~/ 2);
+        } else {
+          // Calculate based on substage within audio generation
+          double audioProgress = 0;
           
-          // Calculate the percentage completion of the batch processing
-          final double batchPercentComplete = currentBatch / totalBatches;
-          
-          // Map this to our 30-85% range for processing
-          final int processingProgress = 30 + (batchPercentComplete * 55).toInt();
-          
-          // Use this as our estimated progress, ensuring it doesn't go backwards
-          estimatedProgress = math.max(estimatedProgress, processingProgress);
-          
-          // If we're on the last batch or almost complete, bump to 85% to avoid stalling
-          if (currentBatch >= totalBatches - 1 || batchPercentComplete > 0.98) {
-            estimatedProgress = math.max(estimatedProgress, 85);
+          if (substage == 'initializing') {
+            audioProgress = 0.05; // Just started audio
+          } else if (substage == 'chunking') {
+            audioProgress = 0.15; // Chunking phase
+          } else if (substage == 'processing') {
+            // Processing phase - this takes the longest
+            final int current = response['current'] ?? 1;
+            final int total = response['total'] ?? 1;
+            
+            // Calculate progress within processing (15-85% of audio weight)
+            double processingProgress = 0.15; // Start at 15%
+            if (total > 0) {
+              // Add progress based on current batch
+              processingProgress += 0.7 * (current / total);
+            } else {
+              // If no batch info, use time-based estimation
+              final now = DateTime.now();
+              final elapsedSinceLastUpdate = now.difference(_lastProgressUpdateTime!).inMilliseconds;
+              
+              // Advance slowly every poll
+              if (elapsedSinceLastUpdate > 1500) {
+                processingProgress += 0.01 * (_pollCount % 3 + 1);
+                _lastProgressUpdateTime = now;
+              }
+            }
+            
+            // Allow processing to reach 100% of its allocated range
+            // This ensures we can get to 95% naturally and avoid getting
+            // stuck at 89%
+            audioProgress = processingProgress;
+            
+            // Once we reach 85% of audio progress, we should be 
+            // transitioning to post_processing, but in case we're stuck,
+            // force-advance to 95% after a prolonged period at high progress
+            if (audioProgress >= 0.85) {
+              final now = DateTime.now();
+              final elapsedAtHighProgress = now.difference(_lastProgressUpdateTime!).inMilliseconds;
+              
+              // If we've been at high progress for more than 10 seconds,
+              // assume we're actually in post-processing and boost accordingly
+              if (elapsedAtHighProgress > 10000) {
+                audioProgress = 0.9 + ((elapsedAtHighProgress - 10000) / 30000).clamp(0.0, 0.05);
+                _lastProgressUpdateTime = now;
+              }
+            }
+          } else if (substage == 'post_processing') {
+            audioProgress = 0.9; // Almost done with audio
           }
           
-          // Add continuous micro-progress within each batch
-          // This helps show progress between batch updates
-          final double batchSize = 55.0 / totalBatches; // Size of each batch in progress percentage
-          final double inBatchProgress = (now.millisecondsSinceEpoch % 2000) / 2000.0; // 0.0 to 1.0 cycling every 2 seconds
-          final int microProgress = (batchSize * 0.4 * inBatchProgress).toInt(); // Use up to 40% of batch size for micro-progress
-          
-          // Only apply micro-progress if we're not on the last batch
-          if (currentBatch < totalBatches) {
-            estimatedProgress += microProgress;
-          }
-        } else if (backendProgress > 45) {
-          // If no batch information, fall back to server's reported progress
-          // Map backend progress (45-90%) to our range (20-95%)
-          estimatedProgress = 20 + ((backendProgress - 45) * 75) ~/ 45;
+          // Apply the calculated audio progress to the audio weight
+          estimatedProgress += (audioProgress * audioRemainingWeight).toInt();
         }
       } else if (status == 'finalizing') {
-        // Finalizing (95-99%)
+        // Treat finalizing as completing the audio generation (95-100%)
         estimatedProgress = 95;
         final int finalizingProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress += (finalizingProgress * 4) ~/ 100;
+        estimatedProgress += (finalizingProgress * 5) ~/ 100;
       } else if (status == 'completed') {
         estimatedProgress = 100;
       }
       
       // Store the server's progress and time for reference
+      final now = DateTime.now();
       _lastServerProgress = (response['progress'] as num?)?.toInt() ?? _lastServerProgress;
       
       // Check if progress appears stalled
-      bool progressStalled = estimatedProgress <= _progressPercent;
+      final bool progressStalled = estimatedProgress <= _progressPercent;
+      final int elapsedSinceLastUpdate = 
+          _lastProgressUpdateTime != null ? now.difference(_lastProgressUpdateTime!).inMilliseconds : 0;
       
-      // Apply a smoother continuous progress between polling updates
-      if (status == 'generating_audio' && elapsedSinceLastUpdateMs > 300) {
-        // Determine next milestone based on current status
-        int nextMilestone = _getNextMilestone(status, substage);
-        
-        // Apply a small increment but don't exceed the next milestone
-        if (_progressPercent < nextMilestone - 1) {
-          // For processing with batch info, use smaller increments based on batch count
-          if (substage == 'processing' && totalBatches > 0) {
-            // Smaller increments for larger batch counts
-            final double incrementFactor = 1.0 / math.sqrt(totalBatches);
-            final int increment = math.max(1, (incrementFactor * 2).toInt());
-            estimatedProgress = math.max(estimatedProgress, _progressPercent + increment);
+      // If progress appears stalled, apply small increments to keep bar moving
+      if (progressStalled && elapsedSinceLastUpdate > 3000) {
+        // Get next milestone based on current status
+        int nextMilestone = 100;
+        if (status == 'generating_script') {
+          nextMilestone = 30;
+        } else if (status == 'preparing_audio') {
+          nextMilestone = 35;
+        } else if (status == 'generating_audio') {
+          if (substage == 'initializing') {
+            nextMilestone = 40;
+          } else if (substage == 'chunking') {
+            nextMilestone = 45;
+          } else if (substage == 'processing') {
+            // For processing, allow progress to go higher over time
+            // to prevent getting stuck
+            final timeInProcessing = now.difference(_progressStartTime!).inMilliseconds;
+            if (timeInProcessing > 60000) { // If in processing for more than 1 minute
+              nextMilestone = 95; // Allow it to reach post-processing levels
+            } else {
+              nextMilestone = 90;
+            }
+          } else if (substage == 'post_processing') {
+            nextMilestone = 95;
           } else {
-            // Standard increment for other stages
-            estimatedProgress = math.max(estimatedProgress, _progressPercent + 1);
+            nextMilestone = 85;
           }
-          _lastProgressUpdateTime = now;
+        } else if (status == 'finalizing') {
+          nextMilestone = 99;
         }
+        
+        // Calculate how long progress has been stalled
+        final int stallDuration = now.difference(_progressStartTime!).inMilliseconds;
+        
+        // Apply incrementally larger increases the longer we're stalled
+        // This ensures we eventually reach completion even if backend is stuck
+        int incrementAmount;
+        if (stallDuration > 120000) { // Stalled for over 2 minutes
+          incrementAmount = math.min(5, nextMilestone - _progressPercent - 1); // Larger increment, up to 5%
+        } else if (stallDuration > 60000) { // Stalled for over 1 minute
+          incrementAmount = math.min(3, nextMilestone - _progressPercent - 1); // Medium increment, up to 3%
+        } else {
+          incrementAmount = (_pollCount % 3) + 1; // Normal 1-3% increment
+        }
+        
+        // Apply increment but don't exceed the next milestone
+        estimatedProgress = math.min(_progressPercent + incrementAmount, nextMilestone - 1);
+        
+        _lastProgressUpdateTime = now;
       } else if (!progressStalled) {
         _lastProgressUpdateTime = now;
       }
@@ -439,8 +502,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Ensure progress never goes backwards
       estimatedProgress = math.max(estimatedProgress, _progressPercent);
       
+      // Force completion after maximum duration (3.5 minutes)
+      final int totalElapsed = now.difference(_progressStartTime!).inMilliseconds;
+      if (totalElapsed > 210000 && estimatedProgress > 80) {
+        // After 3.5 minutes, if we're past 80%, force completion
+        if (status != 'completed') {
+          // Set to 99% and add completion message
+          estimatedProgress = 99;
+          print('Forcing progress to 99% after timeout');
+        }
+      }
       // Cap progress at 99% until complete
-      if (status != 'completed' && estimatedProgress >= 99) {
+      else if (status != 'completed' && estimatedProgress >= 99) {
         estimatedProgress = 99;
       }
       
@@ -448,8 +521,31 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // Update progress percentage using our calculated value
         _progressPercent = estimatedProgress;
         
-        // Update status message based on current stage
-        _updateStatusMessage(status, substage);
+        // Simplify status messages to focus on script and audio generation
+        switch (status) {
+          case 'initializing':
+          case 'generating_script':
+            _statusMessage = 'Creating your personalized meditation script...';
+            break;
+          case 'preparing_audio':
+          case 'generating_audio':
+            // For audio generation, use different messages for each substage
+            if (substage == 'initializing' || substage == 'chunking') {
+              _statusMessage = 'Starting audio generation...';
+            } else if (substage == 'processing') {
+              _statusMessage = 'Generating your meditation...';
+            } else if (substage == 'post_processing') {
+              _statusMessage = 'Adding ambient background sounds...';
+            } else {
+              _statusMessage = 'Generating your meditation audio...';
+            }
+            break;
+          case 'finalizing':
+            _statusMessage = 'Finalizing your meditation...';
+            break;
+          default:
+            _statusMessage = 'Processing your meditation...';
+        }
       });
       
       // Check if the job is completed
@@ -479,139 +575,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     } catch (e) {
       print('Error polling job status: $e');
       // Don't cancel the timer on error, just keep trying
+      // But update the status message to show we're still working
       setState(() {
         _statusMessage = 'Still waiting for your meditation (this may take a few minutes)...';
-        
-        // Even on error, increment progress slightly to show movement
-        if (_progressPercent < 95) {
-          _progressPercent += 1;
-        }
       });
     }
-  }
-  
-  // Helper method to determine the next progress milestone based on status
-  int _getNextMilestone(String status, String? substage) {
-    if (status == 'initializing') return 5;
-    if (status == 'generating_script') return 15;
-    if (status == 'preparing_audio') return 20;
-    
-    if (status == 'generating_audio') {
-      if (substage == 'initializing') return 25;
-      if (substage == 'chunking') return 30;
-      if (substage == 'processing') return 85;
-      if (substage == 'post_processing') return 95;
-      return 85; // Default for audio generation
-    }
-    
-    if (status == 'finalizing') return 99;
-    return 99; // Default cap
-  }
-  
-  // Helper method to update status message based on current stage
-  void _updateStatusMessage(String status, String? substage) {
-    switch (status) {
-      case 'initializing':
-        _statusMessage = 'Initializing your meditation...';
-        break;
-      case 'generating_script':
-        _statusMessage = 'Creating your personalized meditation script...';
-        break;
-      case 'preparing_audio':
-        _statusMessage = 'Preparing to generate calming audio...';
-        break;
-      case 'generating_audio':
-        // For audio generation, use different messages for each substage
-        if (substage == 'initializing') {
-          _statusMessage = 'Initializing voice generation...';
-        } else if (substage == 'chunking') {
-          _statusMessage = 'Breaking down text for natural speech patterns...';
-        } else if (substage == 'processing') {
-          // Get batch information if available
-          final int current = _lastResponseData?['current'] as int? ?? 0;
-          final int total = _lastResponseData?['total'] as int? ?? 0;
-          
-          // Include batch information in status message if available
-          String batchInfo = '';
-          if (total > 0 && current > 0) {
-            final double percentComplete = (current * 100.0 / total);
-            batchInfo = ' (${current.toString().padLeft(2, '0')} of ${total.toString().padLeft(2, '0')} • ${percentComplete.toStringAsFixed(0)}%)';
-          }
-          
-          // Based on the current batch progress, show different messages
-          if (total > 0) {
-            final double progress = current / total;
-            
-            if (progress < 0.33) {
-              _statusMessage = 'Starting voice generation$batchInfo';
-            } else if (progress < 0.66) {
-              _statusMessage = 'Generating meditation voice$batchInfo';
-            } else {
-              _statusMessage = 'Finalizing audio narration$batchInfo';
-            }
-          } else {
-            // Rotating messages based on progress percentage to show activity
-            switch ((_progressPercent ~/ 10) % 4) {
-              case 0:
-                _statusMessage = 'Generating your meditation voice...';
-                break;
-              case 1:
-                _statusMessage = 'Creating soothing voice patterns...';
-                break;
-              case 2:
-                _statusMessage = 'Crafting a calming vocal tone...';
-                break;
-              case 3:
-                _statusMessage = 'Generating peaceful audio narration...';
-                break;
-            }
-          }
-        } else if (substage == 'post_processing') {
-          _statusMessage = 'Adding ambient background sounds...';
-        } else {
-          _statusMessage = 'Generating your meditation audio...';
-        }
-        break;
-      case 'finalizing':
-        _statusMessage = 'Finalizing your meditation experience...';
-        break;
-      default:
-        _statusMessage = 'Processing your meditation...';
-    }
-  }
-
-  void _startPollingJobStatus() {
-    // Cancel any existing timer
-    _pollingTimer?.cancel();
-    
-    // Initialize polling variables
-    _pollCount = 0;
-    _lastServerProgress = 0;
-    _progressStartTime = DateTime.now();
-    _lastProgressUpdateTime = _progressStartTime;
-    
-    setState(() {
-      _statusMessage = 'Starting meditation generation...';
-      _progressPercent = 0; // Start with 0% progress
-    });
-    
-    // Start with a faster polling interval for more responsive updates
-    // 500ms provides a good balance between server load and UI responsiveness
-    _pollingTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
-      _pollJobStatus();
-      
-      // Increment poll count
-      _pollCount++;
-      
-      // If we've been polling for too long (10 minutes), stop
-      if (_pollCount > 1200) { // 10 minutes at 500ms intervals
-        timer.cancel();
-        setState(() {
-          _isLoading = false;
-          _meditation = 'Sorry, the meditation is taking longer than expected. Please try again.';
-        });
-      }
-    });
   }
 
   Future<void> _generateMeditation() async {
