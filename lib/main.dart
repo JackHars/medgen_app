@@ -357,14 +357,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       } else if (status == 'generating_script') {
         estimatedProgress = _stageWeights['initializing'] ?? 5;
         // Add partial progress for script generation (0-100% of its weight)
-        final scriptProgress = response['progress'] ?? 0;
-        estimatedProgress += ((scriptProgress * (_stageWeights['generating_script'] ?? 15)) ~/ 100);
+        final int scriptProgress = (response['progress'] as num?)?.toInt() ?? 0;
+        final int scriptWeight = _stageWeights['generating_script'] ?? 15;
+        estimatedProgress += (scriptProgress * scriptWeight) ~/ 100;
       } else if (status == 'preparing_audio') {
         // Completed initializing and script generation
         estimatedProgress = (_stageWeights['initializing'] ?? 5) + (_stageWeights['generating_script'] ?? 15);
         // Add partial progress for audio preparation (0-100% of its weight)
-        final preparingProgress = response['progress'] ?? 0;
-        estimatedProgress += ((preparingProgress * (_stageWeights['preparing_audio'] ?? 5)) ~/ 100);
+        final int preparingProgress = (response['progress'] as num?)?.toInt() ?? 0;
+        final int preparingWeight = _stageWeights['preparing_audio'] ?? 5;
+        estimatedProgress += (preparingProgress * preparingWeight) ~/ 100;
       } else if (status == 'generating_audio') {
         // Completed initializing, script generation, and audio preparation
         estimatedProgress = (_stageWeights['initializing'] ?? 5) + 
@@ -421,8 +423,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // All previous stages complete, now finalizing
         estimatedProgress = 100 - (_stageWeights['finalizing'] ?? 5);
         // Add partial progress for finalizing (0-100% of its weight)
-        final finalizingProgress = response['progress'] ?? 0;
-        estimatedProgress += ((finalizingProgress * (_stageWeights['finalizing'] ?? 5)) ~/ 100);
+        final int finalizingProgress = (response['progress'] as num?)?.toInt() ?? 0;
+        final int finalizingWeight = _stageWeights['finalizing'] ?? 5;
+        estimatedProgress += (finalizingProgress * finalizingWeight) ~/ 100;
       } else if (status == 'completed') {
         estimatedProgress = 100;
       }
