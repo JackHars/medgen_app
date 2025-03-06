@@ -338,263 +338,50 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   
   Future<void> _pollJobStatus() async {
     if (_jobId == null) return;
-    
+
     try {
       final response = await ApiService.getMeditationStatus(_jobId!);
-      
-      // Get the current status and substage
+
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
-      
-      // Initialize progress variable
-      int estimatedProgress = 0;
-      
-      // Simplified progress tracking with ONLY script generation (0-10%) and processing (10-90%)
-      if (status == 'initializing') {
-        // Script generation phase - fixed at beginning
-        estimatedProgress = 2;
-      } else if (status == 'generating_script') {
-        // Script generation phase (0-10%)
-        final int scriptProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress = (scriptProgress * 10) ~/ 100;
-      } else if (status == 'preparing_audio' || status == 'generating_audio') {
-        // Check the substage for audio generation
-        if (status == 'preparing_audio' || substage == 'initializing' || substage == 'chunking') {
-          // These phases don't contribute to progress - stay at script completion
-          estimatedProgress = 10; // Script generation complete, waiting for processing
-        } else if (substage == 'processing') {
-          // ONLY processing counts for progress (10-90%)
-          estimatedProgress = 10; // Start at script completion
-          
-          // Calculate audio generation progress for processing only
-          final int audioWeight = 80; // 90% - 10% = 80% for processing
-          
-          final int current = response['current'] ?? 1;
-          final int total = response['total'] ?? 1;
-          
-          // Calculate progress within processing
-          double processingProgress = 0.0;
-          if (total > 0) {
-            // Add progress based on current batch
-            processingProgress = current / total;
-            
-            // Ensure progress doesn't get stuck at the beginning
-            if (processingProgress < 0.05 && _pollCount > 5) {
-              processingProgress = 0.05;
-            }
-          } else {
-            // If no batch info, use a MUCH more conservative time-based estimation
-            final now = DateTime.now();
-            final elapsedSinceLastUpdate = now.difference(_lastProgressUpdateTime!).inMilliseconds;
-            final totalElapsedInProcessing = now.difference(_progressStartTime!).inMilliseconds;
-            
-            // Create a much slower progression based on time
-            if (elapsedSinceLastUpdate > 1500) {
-              // VASTLY slower progression with careful caps
-              
-              // Assume a normal meditation takes 3-5 minutes to generate
-              // Scale progress very conservatively
-              if (totalElapsedInProcessing < 60000) {
-                // First minute: only reach 20%
-                processingProgress = 0.05 + (totalElapsedInProcessing / 400000);
-                // Cap at 20%
-                processingProgress = math.min(0.2, processingProgress);
-              } else if (totalElapsedInProcessing < 120000) {
-                // 1-2 minutes: 20-40%
-                processingProgress = 0.2 + ((totalElapsedInProcessing - 60000) / 300000);
-                // Cap at 40%
-                processingProgress = math.min(0.4, processingProgress);
-              } else if (totalElapsedInProcessing < 180000) {
-                // 2-3 minutes: 40-60% 
-                processingProgress = 0.4 + ((totalElapsedInProcessing - 120000) / 300000);
-                // Cap at 60%
-                processingProgress = math.min(0.6, processingProgress);
-              } else if (totalElapsedInProcessing < 240000) {
-                // 3-4 minutes: 60-75%
-                processingProgress = 0.6 + ((totalElapsedInProcessing - 180000) / 400000);
-                // Cap at 75%
-                processingProgress = math.min(0.75, processingProgress);
-              } else {
-                // After 4 minutes: very slow climb to 85% 
-                processingProgress = 0.75 + ((totalElapsedInProcessing - 240000) / 1200000);
-                // Hard cap at 85% - never show more until we're actually done
-                processingProgress = math.min(0.85, processingProgress);
-              }
-              
-              _lastProgressUpdateTime = now;
-              
-              // Add a slight random jitter to make the progress look natural
-              // This also forces small jitters in the UI even at cap points
-              processingProgress += (_random.nextDouble() * 0.003) - 0.0015;
-            }
-          }
-          
-          // Apply the calculated audio progress to the audio weight
-          estimatedProgress += (processingProgress * audioWeight).toInt();
-          
-          // Only force progress to 75% at the absolute most, and only after a LONG time
-          final now = DateTime.now();
-          final totalElapsedInProcessing = now.difference(_progressStartTime!).inMilliseconds;
-          if (totalElapsedInProcessing > 300000 && estimatedProgress < 70) { // 5+ minutes
-            // If processing for over 5 minutes, force to at least 70%
-            estimatedProgress = 70;
-          }
-        } else if (substage == 'post_processing') {
-          estimatedProgress = 90; // Processing is complete, final touches
-        } else {
-          // Default for other substages - stay at script completion
-          estimatedProgress = 10;
-        }
-      } else if (status == 'finalizing') {
-        // Treat finalizing as completing the audio generation (95-100%)
-        estimatedProgress = 95;
-        final int finalizingProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress += (finalizingProgress * 5) ~/ 100;
+      final int backendProgress = (response['progress'] as num?)?.toInt() ?? 0;
+
+      int newProgress = _progressPercent;
+
+      if (status == 'generating_audio' && substage == 'processing') {
+        // Directly reflect backend progress for f5tts audio generation
+        newProgress = backendProgress;
       } else if (status == 'completed') {
-        estimatedProgress = 100;
+        newProgress = 100;
       }
-      
-      // Store the server's progress and time for reference
-      final now = DateTime.now();
-      _lastServerProgress = (response['progress'] as num?)?.toInt() ?? _lastServerProgress;
-      
-      // Check if progress appears stalled
-      final bool progressStalled = estimatedProgress <= _progressPercent;
-      final int elapsedSinceLastUpdate = 
-          _lastProgressUpdateTime != null ? now.difference(_lastProgressUpdateTime!).inMilliseconds : 0;
-      
-      // If progress appears stalled, apply small increments to keep bar moving
-      if (progressStalled && elapsedSinceLastUpdate > 3000) {
-        // Get next milestone based on current status - simplified for ONLY processing progress
-        int nextMilestone = 100;
-        if (status == 'generating_script') {
-          nextMilestone = 10;
-        } else if (status == 'preparing_audio' || status == 'generating_audio') {
-          if (substage == 'initializing' || substage == 'chunking' || status == 'preparing_audio') {
-            // No progress for these phases - stay at script completion
-            nextMilestone = 10;
-          } else if (substage == 'processing') {
-            // Processing is the ONLY phase that contributes to progress
-            final timeInProcessing = now.difference(_progressStartTime!).inMilliseconds;
-            if (timeInProcessing > 300000) { // If in processing for more than 5 minutes
-              nextMilestone = 75; // Max milestone until truly near completion
-            } else if (timeInProcessing > 180000) { // If in processing for more than 3 minutes
-              nextMilestone = 65; // Allow higher progress after 3 minutes
-            } else if (timeInProcessing > 60000) { // If in processing for more than 1 minute
-              nextMilestone = 50; // Allow moderate progress after a minute
-            } else {
-              nextMilestone = 30; // Very conservative early milestone
-            }
-          } else if (substage == 'post_processing') {
-            nextMilestone = 95; // Post-processing is near completion
-          } else {
-            nextMilestone = 50; // Default for audio generation
-          }
-        } else if (status == 'finalizing') {
-          nextMilestone = 99;
-        }
-        
-        // Calculate how long progress has been stalled
-        final int stallDuration = now.difference(_progressStartTime!).inMilliseconds;
-        
-        // Apply incrementally larger increases the longer we're stalled
-        // This ensures we eventually reach completion even if backend is stuck
-        int incrementAmount;
-        if (stallDuration > 120000) { // Stalled for over 2 minutes
-          incrementAmount = math.min(5, nextMilestone - _progressPercent - 1); // Larger increment, up to 5%
-        } else if (stallDuration > 60000) { // Stalled for over 1 minute
-          incrementAmount = math.min(3, nextMilestone - _progressPercent - 1); // Medium increment, up to 3%
-        } else {
-          incrementAmount = (_pollCount % 3) + 1; // Normal 1-3% increment
-        }
-        
-        // Apply increment but don't exceed the next milestone
-        estimatedProgress = math.min(_progressPercent + incrementAmount, nextMilestone - 1);
-        
-        _lastProgressUpdateTime = now;
-      } else if (!progressStalled) {
-        _lastProgressUpdateTime = now;
-      }
-      
+
       // Ensure progress never goes backwards
-      estimatedProgress = math.max(estimatedProgress, _progressPercent);
-      
-      // Much more conservative force completion logic - never force to 99% too early
-      final int totalElapsed = now.difference(_progressStartTime!).inMilliseconds;
-      if ((totalElapsed > 480000) || // Absolute max time = 8 minutes, force to 99%
-          (totalElapsed > 360000 && estimatedProgress > 70) || // 6 minutes and past 70%
-          (totalElapsed > 240000 && estimatedProgress > 85)) { // 4 minutes and past 85%
-        // Force progress to near completion, but only if it's reasonably far along
-        if (status != 'completed') {
-          // Only force to 95% - this lets user know it's almost done but not quite
-          estimatedProgress = 95;
-          print('Forcing progress to 95% after long timeout: ${totalElapsed/1000}s, progress: $estimatedProgress%');
-        }
-      }
-      
+      newProgress = math.max(newProgress, _progressPercent);
+
       setState(() {
-        // Update progress percentage using our calculated value
-        _progressPercent = estimatedProgress;
-        
-        // Simplify status messages to focus on script and audio generation
-        switch (status) {
-          case 'initializing':
-          case 'generating_script':
-            _statusMessage = 'Creating your personalized meditation script...';
-            break;
-          case 'preparing_audio':
-            _statusMessage = 'Preparing for audio generation...';
-            break;
-          case 'generating_audio':
-            // For audio generation, use different messages for each substage
-            if (substage == 'initializing') {
-              _statusMessage = 'Initializing audio generation...';
-            } else if (substage == 'chunking') {
-              _statusMessage = 'Preparing audio resources...';
-            } else if (substage == 'processing') {
-              _statusMessage = 'Generating your meditation audio...';
-            } else if (substage == 'post_processing') {
-              _statusMessage = 'Adding ambient background sounds...';
-            } else {
-              _statusMessage = 'Generating your meditation audio...';
-            }
-            break;
-          case 'finalizing':
-            _statusMessage = 'Finalizing your meditation...';
-            break;
-          default:
-            _statusMessage = 'Processing your meditation...';
-        }
+        _progressPercent = newProgress;
+        _statusMessage = 'Generating your meditation audio...';
       });
-      
-      // Check if the job is completed
-      if (response['status'] == 'completed') {
+
+      if (status == 'completed') {
         _pollingTimer?.cancel();
-        
         setState(() {
           _meditation = response['meditation_script'] ?? '';
           _audioUrl = response['audio_url'];
           _isLoading = false;
           _statusMessage = '';
-          _progressPercent = 100; // Ensure we show 100% when complete
+          _progressPercent = 100;
         });
-      }
-      
-      // Check if there was an error
-      else if (response['status'] == 'error') {
+      } else if (status == 'error') {
         _pollingTimer?.cancel();
-        
         setState(() {
           _meditation = 'Sorry, we encountered an error: ${response['error']}';
           _isLoading = false;
           _statusMessage = '';
         });
       }
-      
     } catch (e) {
       print('Error polling job status: $e');
-      // Don't cancel the timer on error, just keep trying
-      // But update the status message to show we're still working
       setState(() {
         _statusMessage = 'Still waiting for your meditation (this may take a few minutes)...';
       });

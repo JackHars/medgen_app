@@ -375,6 +375,9 @@ def generate_tts(text, output_path, ref_audio=None, ref_text=None,
         vocab_file=CUSTOM_F5TTS_VOCAB,
     )
     
+    # Before starting audio generation
+    update_audio_progress('processing', 0, 100)
+
     # Determine reference audio and text
     if ref_audio and not ref_text:
         print(f"Transcribing reference audio...")
@@ -395,7 +398,7 @@ def generate_tts(text, output_path, ref_audio=None, ref_text=None,
         print(f"Using reference audio from samples/ref.wav with accompanying text")
     
     print(f"Generating meditation voice from text: '{text}'")
-    wav, sr, _ = tts.infer(
+    wav, sr, spect = tts.infer(
         ref_file=ref_audio,
         ref_text=ref_text,
         gen_text=text,
@@ -409,8 +412,14 @@ def generate_tts(text, output_path, ref_audio=None, ref_text=None,
         cross_fade_duration=1,  # Cross-fade duration for chunks hardcoded to 1 second
         fix_duration=fix_duration,          # Fixed duration (if specified)
         remove_silence=True,                # Always remove silence regardless of input parameter
+        progress_callback=lambda current, total: update_audio_progress(
+            'processing', current, total
+        )
     )
     
+    # After audio generation completes
+    update_audio_progress('post_processing', 100, 100)
+
     print(f"Generated meditation voice saved to: {output_path}")
     return output_path
 
