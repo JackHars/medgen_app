@@ -358,13 +358,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         estimatedProgress = _stageWeights['initializing'] ?? 5;
         // Add partial progress for script generation (0-100% of its weight)
         final scriptProgress = response['progress'] ?? 0;
-        estimatedProgress += ((scriptProgress / 100) * (_stageWeights['generating_script'] ?? 15)).toInt();
+        estimatedProgress += ((scriptProgress * (_stageWeights['generating_script'] ?? 15)) ~/ 100);
       } else if (status == 'preparing_audio') {
         // Completed initializing and script generation
         estimatedProgress = (_stageWeights['initializing'] ?? 5) + (_stageWeights['generating_script'] ?? 15);
         // Add partial progress for audio preparation (0-100% of its weight)
         final preparingProgress = response['progress'] ?? 0;
-        estimatedProgress += ((preparingProgress / 100) * (_stageWeights['preparing_audio'] ?? 5)).toInt();
+        estimatedProgress += ((preparingProgress * (_stageWeights['preparing_audio'] ?? 5)) ~/ 100);
       } else if (status == 'generating_audio') {
         // Completed initializing, script generation, and audio preparation
         estimatedProgress = (_stageWeights['initializing'] ?? 5) + 
@@ -415,14 +415,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           }
           
           // Apply the calculated audio progress to the audio weight
-          estimatedProgress += (audioProgress * audioWeight).toInt();
+          estimatedProgress += ((audioProgress * audioWeight) ~/ 1);
         }
       } else if (status == 'finalizing') {
         // All previous stages complete, now finalizing
         estimatedProgress = 100 - (_stageWeights['finalizing'] ?? 5);
         // Add partial progress for finalizing (0-100% of its weight)
         final finalizingProgress = response['progress'] ?? 0;
-        estimatedProgress += ((finalizingProgress / 100) * (_stageWeights['finalizing'] ?? 5)).toInt();
+        estimatedProgress += ((finalizingProgress * (_stageWeights['finalizing'] ?? 5)) ~/ 100);
       } else if (status == 'completed') {
         estimatedProgress = 100;
       }
@@ -705,7 +705,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             textAlign: TextAlign.center,
                           ),
                           Text(
-                            'one breath away.',
+                            'one button away.',
                             style: GoogleFonts.inter(
                               fontSize: 48,
                               fontWeight: FontWeight.w700,
