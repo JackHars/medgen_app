@@ -80,6 +80,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _lastServerProgress = 0;
   DateTime? _progressStartTime;
   DateTime? _lastProgressUpdateTime;
+  // Progress animation controller for smoother visual transitions
+  late AnimationController _progressAnimationController;
+  late Animation<double> _progressAnimation;
+  
   // Simplified stage weights - just script generation and audio generation
   Map<String, int> _stageWeights = {
     'generating_script': 30, // Script generation is faster
@@ -115,6 +119,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    
+    // Initialize progress animation controller for smooth transitions
+    _progressAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800), // Smooth transition
+    );
+    _progressAnimation = Tween<double>(begin: 0, end: 0).animate(
+      CurvedAnimation(
+        parent: _progressAnimationController,
+        curve: Curves.easeInOut,
+      ),
+    );
+    _progressAnimationController.addListener(() {
+      setState(() {
+        // This will trigger rebuilds as the animation progresses
+      });
+    });
     
     // Initialize audio progress controller
     _audioProgressController = AnimationController(
@@ -219,6 +240,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _audioProgressController.dispose();
     _audioPlayer.dispose();
     _pollingTimer?.cancel();
+    _progressAnimationController.dispose();
     for (final controller in _starControllers) {
       controller.dispose();
     }
@@ -319,14 +341,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
     
     // Start polling
-    _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _pollJobStatus();
       
       // Increment poll count
       _pollCount++;
       
       // If we've been polling for too long (10 minutes), stop
-      if (_pollCount > 300) {
+      if (_pollCount > 600) {
         timer.cancel();
         setState(() {
           _isLoading = false;
@@ -396,7 +418,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               final elapsedSinceLastUpdate = now.difference(_lastProgressUpdateTime!).inMilliseconds;
               
               // Advance slowly every poll
-              if (elapsedSinceLastUpdate > 1500) {
+              if (elapsedSinceLastUpdate > 1000) {
                 processingProgress += 0.01 * (_pollCount % 3 + 1);
                 _lastProgressUpdateTime = now;
               }
@@ -424,43 +446,54 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final now = DateTime.now();
       _lastServerProgress = (response['progress'] as num?)?.toInt() ?? _lastServerProgress;
       
-      // Check if progress appears stalled
-      final bool progressStalled = estimatedProgress <= _progressPercent;
-      final int elapsedSinceLastUpdate = 
-          _lastProgressUpdateTime != null ? now.difference(_lastProgressUpdateTime!).inMilliseconds : 0;
-      
-      // If progress appears stalled, apply small increments to keep bar moving
-      if (progressStalled && elapsedSinceLastUpdate > 3000) {
-        // Get next milestone based on current status
-        int nextMilestone = 100;
-        if (status == 'generating_script') {
-          nextMilestone = 30;
-        } else if (status == 'preparing_audio') {
-          nextMilestone = 35;
-        } else if (status == 'generating_audio') {
-          if (substage == 'initializing') {
-            nextMilestone = 40;
-          } else if (substage == 'chunking') {
-            nextMilestone = 45;
-          } else if (substage == 'processing') {
-            nextMilestone = 90;
-          } else if (substage == 'post_processing') {
-            nextMilestone = 95;
-          } else {
-            nextMilestone = 85;
-          }
-        } else if (status == 'finalizing') {
-          nextMilestone = 99;
+      // Determine the next milestone based on current status
+      int nextMilestone = 100;
+      if (status == 'generating_script') {
+        nextMilestone = 30;
+      } else if (status == 'preparing_audio') {
+        nextMilestone = 35;
+      } else if (status == 'generating_audio') {
+        if (substage == 'initializing') {
+          nextMilestone = 40;
+        } else if (substage == 'chunking') {
+          nextMilestone = 45;
+        } else if (substage == 'processing') {
+          nextMilestone = 90;
+        } else if (substage == 'post_processing') {
+          nextMilestone = 95;
+        } else {
+          nextMilestone = 85;
         }
-        
-        // Apply a small increment but don't exceed the next milestone
-        final int incrementAmount = (_pollCount % 3) + 1; // 1-3 percent increment
-        estimatedProgress = math.min(_progressPercent + incrementAmount, nextMilestone - 1);
-        
-        _lastProgressUpdateTime = now;
-      } else if (!progressStalled) {
-        _lastProgressUpdateTime = now;
+      } else if (status == 'finalizing') {
+        nextMilestone = 99;
       }
+      
+      // ALWAYS increment the progress slightly regardless of whether it's stalled
+      // This ensures continuous movement, especially during audio generation
+      if (estimatedProgress <= _progressPercent) {
+        // If no progress from the server, apply a smooth increment
+        final int incrementAmount = 1 + (_pollCount % 3); // 1-3 percent increment
+        estimatedProgress = math.min(_progressPercent + incrementAmount, nextMilestone - 1);
+      } else {
+        // If we have progress from the server, ensure it's at least slightly more than current
+        estimatedProgress = math.max(estimatedProgress, _progressPercent + 1);
+      }
+      
+      // Apply time-based incremental progress even if server estimate is higher
+      // This ensures progress bar always moves visibly on each poll
+      final int elapsedMillis = now.difference(_progressStartTime!).inMilliseconds;
+      
+      // After certain time thresholds, ensure minimum progress percentage
+      // This prevents the bar from getting stuck too long at early stages
+      if (elapsedMillis > 30000 && estimatedProgress < 40) { // 30 seconds
+        estimatedProgress = math.max(estimatedProgress, 40);
+      } else if (elapsedMillis > 60000 && estimatedProgress < 60) { // 1 minute
+        estimatedProgress = math.max(estimatedProgress, 60);
+      } else if (elapsedMillis > 120000 && estimatedProgress < 80) { // 2 minutes
+        estimatedProgress = math.max(estimatedProgress, 80);
+      }
+      
+      _lastProgressUpdateTime = now;
       
       // Ensure progress never goes backwards
       estimatedProgress = math.max(estimatedProgress, _progressPercent);
@@ -472,7 +505,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       
       setState(() {
         // Update progress percentage using our calculated value
+        int oldProgress = _progressPercent;
         _progressPercent = estimatedProgress;
+        
+        // Animate the progress change for smooth visual transition
+        _progressAnimation = Tween<double>(
+          begin: oldProgress / 100.0,
+          end: estimatedProgress / 100.0
+        ).animate(
+          CurvedAnimation(
+            parent: _progressAnimationController,
+            curve: Curves.easeInOut,
+          ),
+        );
+        _progressAnimationController.forward(from: 0);
         
         // Simplify status messages to focus on script and audio generation
         switch (status) {
@@ -531,6 +577,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // But update the status message to show we're still working
       setState(() {
         _statusMessage = 'Still waiting for your meditation (this may take a few minutes)...';
+        
+        // Even on errors, increment progress slightly to keep the bar moving
+        if (_progressPercent < 95) {
+          _progressPercent = math.min(_progressPercent + 1, 95);
+        }
       });
     }
   }
@@ -1075,11 +1126,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               width: double.infinity,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: LinearProgressIndicator(
-                  value: _progressPercent > 0 ? _progressPercent / 100 : null,
-                  backgroundColor: Colors.white.withOpacity(0.1),
-                  color: Theme.of(context).colorScheme.primary,
-                  minHeight: 10,
+                child: AnimatedBuilder(
+                  animation: _progressAnimationController,
+                  builder: (context, child) {
+                    // Use the animated value for smoother visual progress
+                    return LinearProgressIndicator(
+                      value: _progressAnimation.value,
+                      backgroundColor: Colors.white.withOpacity(0.1),
+                      color: Theme.of(context).colorScheme.primary,
+                      minHeight: 10,
+                    );
+                  },
                 ),
               ),
             ),
