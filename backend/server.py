@@ -5,6 +5,8 @@ import tempfile
 import uuid
 import threading
 import json
+import traceback
+import sys
 from main import generate_meditation_script, generate_meditation_from_text
 
 app = Flask(__name__)
@@ -36,14 +38,25 @@ def generate_meditation():
     Returns a job ID for polling the status.
     """
     try:
+        print(f"Received meditation generation request: {request.method}")
+        
+        # Check if request contains JSON
+        if not request.is_json:
+            print("Error: Request did not contain valid JSON")
+            return jsonify({'error': 'Request must be JSON'}), 400
+            
         data = request.json
+        print(f"Request data: {data}")
+        
         user_worry = data.get('worry', '')
         
         if not user_worry:
+            print("Error: No worry description provided")
             return jsonify({'error': 'No worry description provided'}), 400
         
         # Create a unique job ID
         job_id = str(uuid.uuid4())
+        print(f"Created job ID: {job_id}")
         
         # Set initial job status
         jobs[job_id] = {
@@ -61,6 +74,7 @@ def generate_meditation():
         thread.daemon = True
         thread.start()
         
+        print(f"Started background job for {job_id}")
         return jsonify({
             'job_id': job_id,
             'status': 'pending',
@@ -68,8 +82,13 @@ def generate_meditation():
         })
         
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        error_details = traceback.format_exc()
+        print(f"Error in generate_meditation: {str(e)}")
+        print(f"Traceback: {error_details}")
+        return jsonify({
+            'error': str(e),
+            'details': error_details
+        }), 500
 
 def process_meditation_job(job_id, user_worry):
     """
@@ -77,12 +96,17 @@ def process_meditation_job(job_id, user_worry):
     Updates job status as it progresses.
     """
     try:
+        print(f"Processing job {job_id} with worry: {user_worry[:30]}...")
+        
         # Update job status
         jobs[job_id]['status'] = 'generating_script'
         jobs[job_id]['progress'] = 10
         
         # Generate meditation script
+        print(f"Generating meditation script for job {job_id}")
         meditation_script = generate_meditation_script(user_worry)
+        print(f"Script generated successfully (length: {len(meditation_script)})")
+        
         jobs[job_id]['meditation_script'] = meditation_script
         jobs[job_id]['progress'] = 40
         
@@ -93,15 +117,32 @@ def process_meditation_job(job_id, user_worry):
         filename = f"{job_id}.wav"
         output_path = os.path.join(UPLOAD_FOLDER, filename)
         
-        # Use sample background file path (change this to your actual background file)
+        # Use sample background file path
         background_path = "samples/breakfill.wav"
         
+        # Check if background file exists
+        if not os.path.exists(background_path):
+            print(f"Error: Background file not found at {background_path}")
+            jobs[job_id]['status'] = 'error'
+            jobs[job_id]['error'] = f"Background file not found: {background_path}"
+            return
+        
         # Generate the meditation audio
+        print(f"Generating meditation audio for job {job_id}")
         generate_meditation_from_text(
             meditation_script,
             background_path,
             output_path
         )
+        
+        # Check if audio was generated successfully
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            print(f"Error: Audio file was not generated at {output_path}")
+            jobs[job_id]['status'] = 'error'
+            jobs[job_id]['error'] = "Failed to generate audio file"
+            return
+            
+        print(f"Audio generated successfully and saved to {output_path}")
         
         # Set the audio URL for client-side retrieval
         audio_url = f"/api/meditation-audio/{job_id}"
@@ -110,7 +151,9 @@ def process_meditation_job(job_id, user_worry):
         jobs[job_id]['status'] = 'completed'
         
     except Exception as e:
+        error_details = traceback.format_exc()
         print(f"Error in meditation job {job_id}: {str(e)}")
+        print(f"Traceback: {error_details}")
         jobs[job_id]['status'] = 'error'
         jobs[job_id]['error'] = str(e)
 

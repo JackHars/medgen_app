@@ -12,12 +12,16 @@ class ApiService {
   // Method to generate a meditation based on stress description
   static Future<Map<String, dynamic>> processText(String stressDescription) async {
     try {
+      print('Sending request to backend: $baseUrl/api/generate-meditation');
       // Send request to the Python backend
       final response = await http.post(
         Uri.parse('$baseUrl/api/generate-meditation'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'worry': stressDescription}),
       );
+      
+      print('Response status code: ${response.statusCode}');
+      print('Response body: ${response.body}');
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -27,9 +31,10 @@ class ApiService {
           'status': 'success',
         };
       } else {
-        throw Exception('Failed to generate meditation: ${response.statusCode}');
+        throw Exception('Failed to generate meditation: ${response.statusCode}, body: ${response.body}');
       }
     } catch (e) {
+      print('API Error (detailed): $e');
       if (kDebugMode) {
         print('API Error: $e');
         // For development: Simulating a meditation response
@@ -43,7 +48,7 @@ class ApiService {
       } else {
         // In production, return the error
         return {
-          'meditation': 'Sorry, we had trouble generating your meditation. Please try again.',
+          'meditation': 'Sorry, we had trouble generating your meditation. Please try again.\nError: $e',
           'audioUrl': null,
           'status': 'error',
           'error': e.toString(),
