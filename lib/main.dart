@@ -991,7 +991,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 }
 
 // Helper method to format duration
-String _formatDuration(double seconds) {
+String _formatDuration(num seconds) {
   final int mins = seconds ~/ 60;
   final int secs = seconds.toInt() % 60;
   return '$mins:${secs.toString().padLeft(2, '0')}';
