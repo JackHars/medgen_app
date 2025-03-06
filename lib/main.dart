@@ -317,6 +317,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
       
+      // Get current batch and total batches
+      final int currentBatch = (response['current'] as num?)?.toInt() ?? 0;
+      final int totalBatches = (response['total'] as num?)?.toInt() ?? 0;
+      
+      // Log batch information for debugging
+      if (substage == 'processing' && totalBatches > 0) {
+        print('F5 TTS Processing: Batch $currentBatch of $totalBatches (${(currentBatch * 100 / totalBatches).toStringAsFixed(1)}%)');
+      }
+      
       // Current time for calculations
       final now = DateTime.now();
       
@@ -353,65 +362,41 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         
         // The backend allocates 45-90% for audio generation (45% range)
         // We need to map this to our 20-95% range (75% range)
-        // The formula is: frontend_progress = 20 + (backend_progress - 45) * (75/45)
-        
         final int backendProgress = (response['progress'] as num?)?.toInt() ?? 45;
-        if (backendProgress > 45) {
-          // Map backend progress (45-90%) to our range (20-95%)
-          estimatedProgress = 20 + ((backendProgress - 45) * 75) ~/ 45;
-        }
         
         // Enhanced batch tracking for the 'processing' substage
-        if (substage == 'processing') {
-          // Get current batch and total batches information
-          final int current = (response['current'] as num?)?.toInt() ?? 1;
-          final int total = (response['total'] as num?)?.toInt() ?? 1;
+        if (substage == 'processing' && totalBatches > 0 && currentBatch > 0) {
+          // Calculate progress based on actual reported batch progress
+          // Audio processing is allocated 30-85% in our scale (55% range)
           
-          // Log batch information to debug
-          print('Batch progress: $current of $total (${(current * 100 / total).toStringAsFixed(1)}%)');
+          // Calculate the percentage completion of the batch processing
+          final double batchPercentComplete = currentBatch / totalBatches;
           
-          // Now we can calculate a more precise progress within the audio processing phase
-          // Audio processing is allocated 52-85% in backend (33% range)
-          // This maps to roughly 30-85% in our scale (55% range)
+          // Map this to our 30-85% range for processing
+          final int processingProgress = 30 + (batchPercentComplete * 55).toInt();
           
-          if (total > 0) {
-            // For small batch counts (3 or fewer), the backend provides more granular updates
-            // including intra-batch progress
-            if (total <= 3) {
-              // For small batches, use more detailed intra-batch progress if available
-              final double batchProgress = (response['batch_progress'] as num?)?.toDouble() ?? 0.0;
-              
-              // Calculate a smoother progress for small batches
-              // Each batch represents 1/total of the processing range
-              final double batchRangeSize = 55.0 / total; // 55% range (30-85%) divided by total batches
-              final double batchStartPercent = 30.0 + (current - 1) * batchRangeSize;
-              final double intraProgress = batchProgress * batchRangeSize;
-              
-              estimatedProgress = (batchStartPercent + intraProgress).toInt();
-            } else {
-              // For larger batch counts (like 45), distribute the 55% range (30-85%) evenly
-              // The formula ensures each batch increment moves the progress bar appropriately
-              final double processingRange = 55.0; // 30-85% range for audio processing
-              final double percentComplete = current / total;
-              final double processProgress = processingRange * percentComplete;
-              
-              // Add the processing progress to the base 30% (start of processing phase)
-              // This ensures we move from 30% to 85% as we process all batches
-              estimatedProgress = 30 + processProgress.toInt();
-              
-              // Ensure we don't exceed the upper bound for processing
-              estimatedProgress = math.min(estimatedProgress, 85);
-              
-              // For very large batch counts (>20), add a slight curve to the progress
-              // to make it feel more responsive at the beginning
-              if (total > 20 && current < total / 3) {
-                // Add a small boost to early progress (up to 5%)
-                final double boostFactor = 1.0 - (current / (total / 3));
-                final int boost = (5 * boostFactor).toInt();
-                estimatedProgress += boost;
-              }
-            }
+          // Use this as our estimated progress, ensuring it doesn't go backwards
+          estimatedProgress = math.max(estimatedProgress, processingProgress);
+          
+          // If we're on the last batch or almost complete, bump to 85% to avoid stalling
+          if (currentBatch >= totalBatches - 1 || batchPercentComplete > 0.98) {
+            estimatedProgress = math.max(estimatedProgress, 85);
           }
+          
+          // Add continuous micro-progress within each batch
+          // This helps show progress between batch updates
+          final double batchSize = 55.0 / totalBatches; // Size of each batch in progress percentage
+          final double inBatchProgress = (now.millisecondsSinceEpoch % 2000) / 2000.0; // 0.0 to 1.0 cycling every 2 seconds
+          final int microProgress = (batchSize * 0.4 * inBatchProgress).toInt(); // Use up to 40% of batch size for micro-progress
+          
+          // Only apply micro-progress if we're not on the last batch
+          if (currentBatch < totalBatches) {
+            estimatedProgress += microProgress;
+          }
+        } else if (backendProgress > 45) {
+          // If no batch information, fall back to server's reported progress
+          // Map backend progress (45-90%) to our range (20-95%)
+          estimatedProgress = 20 + ((backendProgress - 45) * 75) ~/ 45;
         }
       } else if (status == 'finalizing') {
         // Finalizing (95-99%)
@@ -428,40 +413,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Check if progress appears stalled
       bool progressStalled = estimatedProgress <= _progressPercent;
       
-      // Apply a smoother continuous progress during batch processing
-      // We'll advance the progress bar even between poll updates
-      if (status == 'generating_audio' && substage == 'processing') {
-        // For processing stage, if it's been at least 350ms since last update,
-        // increment progress slightly to show continuous movement
-        if (elapsedSinceLastUpdateMs > 350) {
-          // Get the next milestone to ensure we don't exceed it
-          int nextMilestone = _getNextMilestone(status, substage);
-          
-          // Increment by a small amount (0.5-1%)
-          if (_progressPercent < nextMilestone - 1) {
-            // Calculate increment based on batch size - smaller increment for higher batch counts
-            final int current = (response['current'] as num?)?.toInt() ?? 1;
-            final int total = (response['total'] as num?)?.toInt() ?? 1;
-            
-            // Calculate increment - smaller for larger batch counts
-            final double incrementFactor = total > 30 ? 0.5 : 1.0;
-            final int increment = math.max(1, (incrementFactor).toInt());
-            
-            estimatedProgress = math.max(estimatedProgress, _progressPercent + increment);
-            _lastProgressUpdateTime = now;
-          }
-        }
-      }
-      // For other stalled stages, use the standard approach
-      else if (progressStalled && elapsedSinceLastUpdateMs > 1500) {
+      // Apply a smoother continuous progress between polling updates
+      if (status == 'generating_audio' && elapsedSinceLastUpdateMs > 300) {
         // Determine next milestone based on current status
         int nextMilestone = _getNextMilestone(status, substage);
         
         // Apply a small increment but don't exceed the next milestone
-        final int incrementAmount = 1; // 1% increment for smooth movement
-        estimatedProgress = math.min(_progressPercent + incrementAmount, nextMilestone - 1);
-        
-        _lastProgressUpdateTime = now;
+        if (_progressPercent < nextMilestone - 1) {
+          // For processing with batch info, use smaller increments based on batch count
+          if (substage == 'processing' && totalBatches > 0) {
+            // Smaller increments for larger batch counts
+            final double incrementFactor = 1.0 / math.sqrt(totalBatches);
+            final int increment = math.max(1, (incrementFactor * 2).toInt());
+            estimatedProgress = math.max(estimatedProgress, _progressPercent + increment);
+          } else {
+            // Standard increment for other stages
+            estimatedProgress = math.max(estimatedProgress, _progressPercent + 1);
+          }
+          _lastProgressUpdateTime = now;
+        }
       } else if (!progressStalled) {
         _lastProgressUpdateTime = now;
       }
@@ -564,23 +534,37 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           // Include batch information in status message if available
           String batchInfo = '';
           if (total > 0 && current > 0) {
-            batchInfo = ' (Batch ${current.toString().padLeft(2, '0')} of ${total.toString().padLeft(2, '0')})';
+            final double percentComplete = (current * 100.0 / total);
+            batchInfo = ' (${current.toString().padLeft(2, '0')} of ${total.toString().padLeft(2, '0')} • ${percentComplete.toStringAsFixed(0)}%)';
           }
           
-          // Use different messages based on progress to keep it interesting
-          switch ((_progressPercent ~/ 10) % 4) {
-            case 0:
-              _statusMessage = 'Generating your meditation voice$batchInfo...';
-              break;
-            case 1:
-              _statusMessage = 'Creating soothing voice patterns$batchInfo...';
-              break;
-            case 2:
-              _statusMessage = 'Crafting a calming vocal tone$batchInfo...';
-              break;
-            case 3:
-              _statusMessage = 'Generating peaceful audio narration$batchInfo...';
-              break;
+          // Based on the current batch progress, show different messages
+          if (total > 0) {
+            final double progress = current / total;
+            
+            if (progress < 0.33) {
+              _statusMessage = 'Starting voice generation$batchInfo';
+            } else if (progress < 0.66) {
+              _statusMessage = 'Generating meditation voice$batchInfo';
+            } else {
+              _statusMessage = 'Finalizing audio narration$batchInfo';
+            }
+          } else {
+            // Rotating messages based on progress percentage to show activity
+            switch ((_progressPercent ~/ 10) % 4) {
+              case 0:
+                _statusMessage = 'Generating your meditation voice...';
+                break;
+              case 1:
+                _statusMessage = 'Creating soothing voice patterns...';
+                break;
+              case 2:
+                _statusMessage = 'Crafting a calming vocal tone...';
+                break;
+              case 3:
+                _statusMessage = 'Generating peaceful audio narration...';
+                break;
+            }
           }
         } else if (substage == 'post_processing') {
           _statusMessage = 'Adding ambient background sounds...';
@@ -612,15 +596,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
     
     // Start with a faster polling interval for more responsive updates
-    // 750ms provides a good balance between server load and UI responsiveness
-    _pollingTimer = Timer.periodic(const Duration(milliseconds: 750), (timer) {
+    // 500ms provides a good balance between server load and UI responsiveness
+    _pollingTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
       _pollJobStatus();
       
       // Increment poll count
       _pollCount++;
       
       // If we've been polling for too long (10 minutes), stop
-      if (_pollCount > 800) { // 10 minutes at 750ms intervals
+      if (_pollCount > 1200) { // 10 minutes at 500ms intervals
         timer.cancel();
         setState(() {
           _isLoading = false;
