@@ -78,10 +78,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   
   // Audio player state
   bool _isPlaying = false;
+  bool _isAudioLoading = false;
   double _audioProgress = 0.0;
+  Duration? _audioDuration;
   late AnimationController _audioProgressController;
   final AudioPlayer _audioPlayer = AudioPlayer();
   String? _audioUrl;
+  String? _audioError;
   
   // Animation controllers
   late final List<AnimationController> _starControllers;
@@ -100,7 +103,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // Initialize audio progress controller
     _audioProgressController = AnimationController(
       vsync: this,
-      duration: const Duration(minutes: 5), // Typical meditation length
+      duration: const Duration(minutes: 5), // Default duration, will be updated
     )..addListener(() {
       setState(() {
         _audioProgress = _audioProgressController.value;
@@ -109,13 +112,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     // Initialize audio player
     _audioPlayer.playerStateStream.listen((state) {
-      if (state.processingState == ProcessingState.completed) {
-        setState(() {
+      setState(() {
+        _isPlaying = state.playing;
+        
+        // Handle completion
+        if (state.processingState == ProcessingState.completed) {
           _isPlaying = false;
           _audioProgress = 0.0;
-        });
-        _audioProgressController.reset();
-      }
+          _audioProgressController.reset();
+        }
+      });
     });
 
     _audioPlayer.positionStream.listen((position) {
@@ -126,6 +132,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         });
       }
     });
+    
+    _audioPlayer.durationStream.listen((duration) {
+      setState(() {
+        _audioDuration = duration;
+      });
+    });
+    
+    // Listen for errors
+    _audioPlayer.playbackEventStream.listen(
+      (event) {},
+      onError: (Object e, StackTrace st) {
+        setState(() {
+          _audioError = 'Error loading audio: ${e.toString()}';
+          _isAudioLoading = false;
+        });
+      },
+    );
     
     // Initialize star animations
     _starControllers = List.generate(
@@ -189,27 +212,55 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _togglePlayPause() async {
     if (_audioUrl == null) return;
     
-    setState(() {
-      _isPlaying = !_isPlaying;
-    });
+    // If there was an error, reset and try again
+    if (_audioError != null) {
+      _resetAudioPlayer();
+      setState(() {
+        _audioError = null;
+      });
+    }
     
     if (_isPlaying) {
-      // If we haven't loaded the audio yet, load it
-      if (_audioPlayer.duration == null) {
-        try {
-          await _audioPlayer.setUrl(_audioUrl!);
-          await _audioPlayer.play();
-        } catch (e) {
-          print('Error playing audio: $e');
-          setState(() {
-            _isPlaying = false;
-          });
-        }
-      } else {
-        await _audioPlayer.play();
-      }
-    } else {
+      // If already playing, just pause
       await _audioPlayer.pause();
+      setState(() {
+        _isPlaying = false;
+      });
+    } else {
+      // Either start playing or resume
+      try {
+        setState(() {
+          _isAudioLoading = true;
+        });
+        
+        // If we haven't loaded the audio yet, load it
+        if (_audioPlayer.duration == null) {
+          // If it's a relative URL, prepend the base URL
+          final String fullUrl = _audioUrl!.startsWith('http') 
+              ? _audioUrl! 
+              : '${ApiService.baseUrl}${_audioUrl!}';
+              
+          print('Loading audio from: $fullUrl');
+          
+          await _audioPlayer.setUrl(fullUrl);
+          await _audioPlayer.play();
+        } else {
+          // Resume playback
+          await _audioPlayer.play();
+        }
+        
+        setState(() {
+          _isAudioLoading = false;
+          _isPlaying = true;
+        });
+      } catch (e) {
+        print('Error playing audio: $e');
+        setState(() {
+          _isAudioLoading = false;
+          _isPlaying = false;
+          _audioError = 'Error playing audio: ${e.toString()}';
+        });
+      }
     }
   }
 
@@ -217,9 +268,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _audioPlayer.stop();
     setState(() {
       _isPlaying = false;
+      _isAudioLoading = false;
       _audioProgress = 0.0;
       _audioUrl = null;
+      _audioError = null;
+      _audioDuration = null;
     });
+  }
+  
+  void _seekAudio(double value) {
+    if (_audioDuration != null) {
+      final position = Duration(
+        milliseconds: (value * _audioDuration!.inMilliseconds).round(),
+      );
+      _audioPlayer.seek(position);
+    }
   }
 
   void _startPollingJobStatus() {
@@ -264,10 +327,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         
         // Update status message based on server status
         final status = response['status'];
-        if (status == 'generating_script') {
-          _statusMessage = 'Creating your personalized meditation script...';
-        } else if (status == 'generating_audio') {
-          _statusMessage = 'Generating soothing audio for your meditation...';
+        switch (status) {
+          case 'initializing':
+            _statusMessage = 'Initializing your meditation...';
+            break;
+          case 'generating_script':
+            _statusMessage = 'Creating your personalized meditation script...';
+            break;
+          case 'preparing_audio':
+            _statusMessage = 'Preparing for audio generation...';
+            break;
+          case 'generating_audio':
+            _statusMessage = 'Generating soothing audio for your meditation...';
+            break;
+          case 'finalizing':
+            _statusMessage = 'Finalizing your meditation...';
+            break;
+          default:
+            _statusMessage = 'Processing your meditation...';
         }
       });
       
@@ -367,7 +444,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // Download meditation audio
   void _downloadAudio() {
     if (_audioUrl != null) {
-      ApiService.downloadMeditationAudio(_audioUrl!, 'meditation.wav');
+      // If it's a relative URL, prepend the base URL
+      final String fullUrl = _audioUrl!.startsWith('http') 
+          ? _audioUrl! 
+          : '${ApiService.baseUrl}${_audioUrl!}';
+      
+      ApiService.downloadMeditationAudio(fullUrl, 'meditation.wav');
     }
   }
 
@@ -566,73 +648,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       
                       // Meditation Result
                       if (_isLoading)
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            // Progress bar with percentage
-                            Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: LinearProgressIndicator(
-                                      value: _progressPercent > 0 ? _progressPercent / 100 : null,
-                                      backgroundColor: Colors.white.withOpacity(0.1),
-                                      color: Theme.of(context).colorScheme.primary,
-                                      minHeight: 10,
-                                    ),
-                                  ),
-                                ),
-                                if (_progressPercent > 0)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context).colorScheme.surface.withOpacity(0.7),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      '${_progressPercent.round()}%',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: Theme.of(context).colorScheme.primary,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            
-                            const SizedBox(height: 20),
-                            
-                            // Status message
-                            Text(
-                              _statusMessage,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            
-                            const SizedBox(height: 8),
-                            
-                            // Subtitle explaining the wait
-                            Text(
-                              'Creating your personalized meditation takes a bit of time. Please be patient...',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.6),
-                                fontSize: 14,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                            
-                            const SizedBox(height: 24),
-                          ],
-                        )
+                        _buildProgressBar()
                       else if (_meditation.isNotEmpty) ...[
                         const SizedBox(height: 48),
                         Container(
@@ -687,17 +703,41 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                     ),
                                   ),
                                   child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
                                     children: [
+                                      // Audio Error Message
+                                      if (_audioError != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 12),
+                                          child: Text(
+                                            _audioError!,
+                                            style: TextStyle(
+                                              color: Colors.red[300],
+                                              fontSize: 14,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                    
                                       Row(
                                         children: [
                                           // Play/Pause button
                                           IconButton(
                                             onPressed: _togglePlayPause,
-                                            icon: Icon(
-                                              _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                                              color: Theme.of(context).colorScheme.primary,
-                                              size: 40,
-                                            ),
+                                            icon: _isAudioLoading 
+                                                ? const SizedBox(
+                                                    width: 24,
+                                                    height: 24,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                                                    ),
+                                                  )
+                                                : Icon(
+                                                    _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                                                    color: Theme.of(context).colorScheme.primary,
+                                                    size: 40,
+                                                  ),
                                           ),
                                           const SizedBox(width: 8),
                                           
@@ -706,30 +746,39 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                             child: Column(
                                               crossAxisAlignment: CrossAxisAlignment.start,
                                               children: [
-                                                ClipRRect(
-                                                  borderRadius: BorderRadius.circular(8),
-                                                  child: LinearProgressIndicator(
-                                                    value: _audioProgress,
-                                                    backgroundColor: Theme.of(context).colorScheme.surface,
-                                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                                      Theme.of(context).colorScheme.primary,
+                                                SliderTheme(
+                                                  data: SliderThemeData(
+                                                    trackHeight: 8,
+                                                    activeTrackColor: Theme.of(context).colorScheme.primary,
+                                                    inactiveTrackColor: Theme.of(context).colorScheme.surface,
+                                                    thumbColor: Colors.white,
+                                                    thumbShape: const RoundSliderThumbShape(
+                                                      enabledThumbRadius: 6,
                                                     ),
-                                                    minHeight: 8,
+                                                    overlayColor: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                                                  ),
+                                                  child: Slider(
+                                                    value: _audioProgress,
+                                                    onChanged: _seekAudio,
                                                   ),
                                                 ),
-                                                const SizedBox(height: 8),
+                                                const SizedBox(height: 4),
                                                 Row(
                                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                   children: [
+                                                    // Current position
                                                     Text(
-                                                      _formatDuration(_audioProgress * 300), // 5 minutes in seconds
+                                                      _formatDuration(_audioDuration != null
+                                                          ? _audioProgress * _audioDuration!.inSeconds
+                                                          : 0),
                                                       style: GoogleFonts.inter(
                                                         fontSize: 12,
                                                         color: Colors.white.withOpacity(0.7),
                                                       ),
                                                     ),
+                                                    // Total duration
                                                     Text(
-                                                      '5:00',
+                                                      _formatDuration(_audioDuration?.inSeconds ?? 0),
                                                       style: GoogleFonts.inter(
                                                         fontSize: 12,
                                                         color: Colors.white.withOpacity(0.7),
@@ -740,16 +789,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                               ],
                                             ),
                                           ),
+                                          // Download button
                                           IconButton(
                                             icon: const Icon(Icons.download),
                                             color: Colors.white70,
                                             onPressed: _downloadAudio,
+                                            tooltip: 'Download meditation',
                                           ),
                                         ],
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Listen to your guided meditation',
+                                        _isAudioLoading
+                                            ? 'Loading audio...'
+                                            : 'Listen to your guided meditation',
                                         style: GoogleFonts.inter(
                                           fontSize: 12,
                                           color: Colors.white.withOpacity(0.7),
@@ -852,33 +905,85 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   
   // Helper method to build loading indicator with status
   Widget _buildLoadingIndicator() {
-    if (_progressPercent <= 0) {
-      return const SizedBox(
-        height: 20,
-        width: 20,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-        ),
-      );
-    }
-    
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    // Always show a spinning indicator in the button
+    return const SizedBox(
+      height: 20,
+      width: 20,
+      child: CircularProgressIndicator(
+        strokeWidth: 2,
+        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+      ),
+    );
+  }
+
+  // Progress bar UI component with even padding
+  Widget _buildProgressBar() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        SizedBox(
-          height: 20,
-          width: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-            value: _progressPercent / 100,
+        // Equal padding above
+        const SizedBox(height: 30),
+        
+        // Progress bar with percentage
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox(
+              width: double.infinity,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: _progressPercent > 0 ? _progressPercent / 100 : null,
+                  backgroundColor: Colors.white.withOpacity(0.1),
+                  color: Theme.of(context).colorScheme.primary,
+                  minHeight: 10,
+                ),
+              ),
+            ),
+            if (_progressPercent > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${_progressPercent.round()}%',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        
+        // Equal padding below
+        const SizedBox(height: 30),
+        
+        // Status message
+        Text(
+          _statusMessage,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.9),
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(width: 8),
+        
+        const SizedBox(height: 8),
+        
+        // Subtitle explaining the wait
         Text(
-          '${_progressPercent.round()}%',
-          style: const TextStyle(fontSize: 12),
+          'Creating your personalized meditation takes a bit of time. Please be patient...',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.6),
+            fontSize: 14,
+            fontStyle: FontStyle.italic,
+          ),
         ),
       ],
     );

@@ -98,20 +98,33 @@ def process_meditation_job(job_id, user_worry):
     try:
         print(f"Processing job {job_id} with worry: {user_worry[:30]}...")
         
-        # Update job status
+        # Step 1: Initialize job (5%)
+        jobs[job_id]['status'] = 'initializing'
+        jobs[job_id]['progress'] = 5
+        
+        # Step 2: Preparing to generate script (10%)
+        print(f"Preparing to generate meditation script for job {job_id}")
         jobs[job_id]['status'] = 'generating_script'
         jobs[job_id]['progress'] = 10
         
-        # Generate meditation script
+        # Step 3: Generating meditation script (15-35%)
+        # Start script generation
         print(f"Generating meditation script for job {job_id}")
+        
+        # Update progress to 15% to indicate script generation started
+        jobs[job_id]['progress'] = 15
+        
+        # Generate script
         meditation_script = generate_meditation_script(user_worry)
         print(f"Script generated successfully (length: {len(meditation_script)})")
         
+        # Store the script and update progress to 35%
         jobs[job_id]['meditation_script'] = meditation_script
-        jobs[job_id]['progress'] = 40
+        jobs[job_id]['progress'] = 35
         
-        # Update job status
-        jobs[job_id]['status'] = 'generating_audio'
+        # Step 4: Preparing for audio generation (40%)
+        jobs[job_id]['status'] = 'preparing_audio'
+        jobs[job_id]['progress'] = 40
         
         # Create output file path
         filename = f"{job_id}.wav"
@@ -126,6 +139,36 @@ def process_meditation_job(job_id, user_worry):
             jobs[job_id]['status'] = 'error'
             jobs[job_id]['error'] = f"Background file not found: {background_path}"
             return
+        
+        # Step 5: Starting audio generation (45%)
+        jobs[job_id]['status'] = 'generating_audio'
+        jobs[job_id]['progress'] = 45
+        print(f"Starting audio generation for job {job_id}")
+        
+        # The audio generation process has multiple substeps:
+        # We'll update progress at key points during generation
+        
+        # Create a progress callback function
+        def update_audio_progress(step, total_steps=5):
+            # Calculate progress between 45% and 95%
+            progress = 45 + (step / total_steps) * 50
+            jobs[job_id]['progress'] = min(95, int(progress))
+            print(f"Audio generation progress: {jobs[job_id]['progress']}%")
+        
+        # Step 5.1: Text to speech conversion (50%)
+        update_audio_progress(1)
+        
+        # Step 5.2: Audio processing starts (60%)
+        update_audio_progress(2)
+        
+        # Step 5.3: Stretching background (70%)
+        update_audio_progress(3)
+        
+        # Step 5.4: Mixing audio (80%)
+        update_audio_progress(4)
+        
+        # Step 5.5: Finalizing audio (90%)
+        update_audio_progress(5)
         
         # Generate the meditation audio
         print(f"Generating meditation audio for job {job_id}")
@@ -143,6 +186,10 @@ def process_meditation_job(job_id, user_worry):
             return
             
         print(f"Audio generated successfully and saved to {output_path}")
+        
+        # Step 6: Finalizing (95-100%)
+        jobs[job_id]['progress'] = 95
+        jobs[job_id]['status'] = 'finalizing'
         
         # Set the audio URL for client-side retrieval
         audio_url = f"/api/meditation-audio/{job_id}"
