@@ -788,18 +788,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                               Row(
                                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                 children: [
-                                                    // Current position
+                                                  // Current position
                                                   Text(
-                                                      _formatDuration(_audioDuration != null
-                                                          ? _audioProgress * _audioDuration!.inSeconds
-                                                          : 0),
+                                                    _formatDuration(_audioDuration != null
+                                                        ? _audioProgress * _audioDuration!.inSeconds
+                                                        : 0),
                                                     style: GoogleFonts.inter(
                                                       fontSize: 12,
                                                       color: Colors.white.withOpacity(0.7),
                                                     ),
-                                                    // Total duration
+                                                  ),
+                                                  // Total duration
                                                   Text(
-                                                      _formatDuration(_audioDuration?.inSeconds ?? 0),
+                                                    _formatDuration(_audioDuration?.inSeconds ?? 0),
                                                     style: GoogleFonts.inter(
                                                       fontSize: 12,
                                                       color: Colors.white.withOpacity(0.7),
