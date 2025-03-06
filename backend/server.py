@@ -264,18 +264,39 @@ def process_meditation_job(job_id, user_worry):
             
             # Calculate base progress based on stage
             if stage == 'initializing':
-                # Initializing model (45-50%)
-                stage_progress = 0
+                # Initializing model (45-48%)
+                stage_progress = 0.05
             elif stage == 'chunking':
-                # Text chunking stage (50-55%)
-                stage_progress = 0.1
+                # Text chunking stage (48-52%)
+                stage_progress = 0.12
             elif stage == 'processing':
-                # Main processing stage - this is where most time is spent (55-85%)
-                # Here we use the current/total to track batch progress
-                stage_progress = 0.2 + (0.6 * (current / total))
+                # Main processing stage - this is where most time is spent (52-85%)
+                # Here we use the current/total to track batch progress with finer granularity
+                base_processing = 0.15
+                processing_range = 0.7
+                
+                # Adjust for the case when current is 0 (just started)
+                if current == 0 and total > 0:
+                    current = 1
+                    
+                # For small number of batches, interpolate more points
+                if total <= 3 and current <= total:
+                    # Use a more granular approach for small batch counts
+                    batch_index = current - 1
+                    
+                    # Calculate direct proportion for fewer batches for more granular updates
+                    stage_progress = base_processing + (processing_range * (current / total))
+                    
+                    # For small batches, we'll do additional tracking in the meditation_status endpoint
+                    # by storing additional tracking data in the job
+                    batch_progress = (current - batch_index)
+                    jobs[job_id]['batch_progress'] = batch_progress
+                else:
+                    # For larger batch counts, use the regular calculation
+                    stage_progress = base_processing + (processing_range * (current / total))
             elif stage == 'post_processing':
                 # Audio post-processing (85-90%)
-                stage_progress = 0.9
+                stage_progress = 0.92
             else:
                 # Default fallback
                 stage_progress = 0.5
@@ -292,7 +313,7 @@ def process_meditation_job(job_id, user_worry):
                 jobs[job_id]['audio_current'] = current
                 jobs[job_id]['audio_total'] = total
                 
-            print(f"Audio generation progress: Stage={stage}, Progress={jobs[job_id]['progress']}%")
+            print(f"Audio generation progress: Stage={stage}, Progress={jobs[job_id]['progress']}%, Current={current}, Total={total}")
         
         # Generate the meditation audio with progress tracking
         print(f"Generating meditation audio for job {job_id}")
@@ -358,6 +379,22 @@ def meditation_status(job_id):
         if job.get('audio_substage') == 'processing':
             response['current'] = job.get('audio_current', 1)
             response['total'] = job.get('audio_total', 1)
+            
+            # For small batch counts, provide more granular progress
+            if job.get('audio_total', 1) <= 3:
+                # We may have additional intra-batch progress for small batches
+                if 'batch_progress' in job:
+                    batch_progress = job.get('batch_progress', 0)
+                    current = job.get('audio_current', 1)
+                    total = job.get('audio_total', 1)
+                    
+                    # Calculate finer-grained progress for the progress bar
+                    # Map the progress to a slightly larger range to show movement
+                    base_progress = response['progress']
+                    if current < total:
+                        # Add up to 3% increment based on batch progress
+                        increment = int(3 * batch_progress)
+                        response['progress'] = min(85, base_progress + increment)
     
     # If the job is completed, include the meditation script and audio URL
     if job.get('status') == 'completed':

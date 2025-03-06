@@ -215,18 +215,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // If there was an error, reset and try again
     if (_audioError != null) {
       _resetAudioPlayer();
-      setState(() {
+    setState(() {
         _audioError = null;
       });
     }
     
-    if (_isPlaying) {
+      if (_isPlaying) {
       // If already playing, just pause
       await _audioPlayer.pause();
       setState(() {
         _isPlaying = false;
       });
-    } else {
+      } else {
       // Show pause button immediately for better UX
       setState(() {
         _isPlaying = true;
@@ -323,9 +323,26 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     try {
       final response = await ApiService.getMeditationStatus(_jobId!);
       
+      // Store the previous progress for comparison
+      final previousProgress = _progressPercent;
+      
+      // Get the server-reported progress
+      final serverProgress = response['progress'] ?? previousProgress;
+      
       setState(() {
-        // Update progress percentage
-        _progressPercent = response['progress'] ?? _progressPercent;
+        // Always use server progress if it's higher than current progress
+        if (serverProgress > _progressPercent) {
+          _progressPercent = serverProgress;
+        }
+        // Only allow small increments if progress appears stuck
+        else if (_progressPercent == previousProgress && _pollCount % 3 == 0) {
+          // Add a tiny increment just to show some movement, but never exceed the next major milestone
+          final nextMilestone = _getNextProgressMilestone(serverProgress);
+          final increment = 1;
+          if (_progressPercent + increment < nextMilestone) {
+            _progressPercent += increment;
+          }
+        }
         
         // Update status message based on server status
         final status = response['status'];
@@ -340,17 +357,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             _statusMessage = 'Preparing for audio generation...';
             break;
           case 'generating_audio':
-            // For audio generation, check if there's a substage available
+            // For audio generation, use different messages for each substage
             final substage = response['substage'];
             if (substage == 'initializing') {
               _statusMessage = 'Setting up the voice generation model...';
             } else if (substage == 'chunking') {
               _statusMessage = 'Analyzing your meditation text...';
             } else if (substage == 'processing') {
-              // Show which chunk is being processed
-              final current = response['current'] ?? 0;
-              final total = response['total'] ?? 1;
-              _statusMessage = 'Generating your meditation voice (part ${current} of ${total})...';
+              _statusMessage = 'Generating your meditation voice...';
             } else if (substage == 'post_processing') {
               _statusMessage = 'Adding ambient background sounds to your meditation...';
             } else {
@@ -709,19 +723,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               
                               // Audio Player
                               if (_audioUrl != null)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.surface.withOpacity(0.3),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: const Color(0xFF8B5CF6).withOpacity(0.15),
-                                      width: 1,
-                                    ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.surface.withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: const Color(0xFF8B5CF6).withOpacity(0.15),
+                                    width: 1,
                                   ),
-                                  child: Column(
+                                ),
+                                child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
+                                  children: [
                                       // Audio Error Message
                                       if (_audioError != null)
                                         Padding(
@@ -736,24 +750,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                           ),
                                         ),
                                     
-                                      Row(
-                                        children: [
-                                          // Play/Pause button
-                                          IconButton(
-                                            onPressed: _togglePlayPause,
-                                            icon: Icon(
-                                                _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                                                color: Theme.of(context).colorScheme.primary,
-                                                size: 40,
-                                            ),
+                                    Row(
+                                      children: [
+                                        // Play/Pause button
+                                        IconButton(
+                                          onPressed: _togglePlayPause,
+                                          icon: Icon(
+                                            _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                                            color: Theme.of(context).colorScheme.primary,
+                                            size: 40,
                                           ),
-                                          const SizedBox(width: 8),
-                                          
-                                          // Progress bar
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
+                                        ),
+                                        const SizedBox(width: 8),
+                                        
+                                        // Progress bar
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
                                                 SliderTheme(
                                                   data: SliderThemeData(
                                                     trackHeight: 8,
@@ -771,32 +785,31 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                                   ),
                                                 ),
                                                 const SizedBox(height: 4),
-                                                Row(
-                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                  children: [
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
                                                     // Current position
-                                                    Text(
+                                                  Text(
                                                       _formatDuration(_audioDuration != null
                                                           ? _audioProgress * _audioDuration!.inSeconds
                                                           : 0),
-                                                      style: GoogleFonts.inter(
-                                                        fontSize: 12,
-                                                        color: Colors.white.withOpacity(0.7),
-                                                      ),
+                                                    style: GoogleFonts.inter(
+                                                      fontSize: 12,
+                                                      color: Colors.white.withOpacity(0.7),
                                                     ),
                                                     // Total duration
-                                                    Text(
+                                                  Text(
                                                       _formatDuration(_audioDuration?.inSeconds ?? 0),
-                                                      style: GoogleFonts.inter(
-                                                        fontSize: 12,
-                                                        color: Colors.white.withOpacity(0.7),
-                                                      ),
+                                                    style: GoogleFonts.inter(
+                                                      fontSize: 12,
+                                                      color: Colors.white.withOpacity(0.7),
                                                     ),
-                                                  ],
-                                                ),
-                                              ],
-                                            ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
                                           ),
+                                        ),
                                           // Download button
                                           IconButton(
                                             icon: const Icon(Icons.download),
@@ -804,21 +817,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                             onPressed: _downloadAudio,
                                             tooltip: 'Download meditation',
                                           ),
-                                        ],
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Listen to your guided meditation',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        color: Colors.white.withOpacity(0.7),
+                                        fontStyle: FontStyle.italic,
                                       ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Listen to your guided meditation',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 12,
-                                          color: Colors.white.withOpacity(0.7),
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ],
-                                  ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
                                 ),
+                              ),
                               
                               const SizedBox(height: 24),
                               
@@ -993,6 +1006,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         ),
       ],
     );
+  }
+
+  // Helper method to determine the next progress milestone
+  int _getNextProgressMilestone(int currentProgress) {
+    final milestones = [5, 15, 35, 45, 52, 60, 70, 80, 85, 90, 95, 100];
+    for (final milestone in milestones) {
+      if (milestone > currentProgress) {
+        return milestone;
+      }
+    }
+    return 100;
   }
 }
 
