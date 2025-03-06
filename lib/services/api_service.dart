@@ -23,10 +23,31 @@ class ApiService {
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        
+        // Check if this is an asynchronous job response
+        if (data.containsKey('job_id')) {
+          print('Received job ID: ${data['job_id']}');
+          return {
+            'job_id': data['job_id'],
+            'status': data['status'] ?? 'pending',
+            'message': data['message'] ?? 'Meditation generation started',
+          };
+        }
+        
+        // Check if this is a direct meditation response
+        if (data.containsKey('meditation_script')) {
+          return {
+            'meditation': data['meditation_script'],
+            'audioUrl': data['audio_url'],
+            'status': 'success',
+          };
+        }
+        
+        // Unknown response format
         return {
-          'meditation': data['meditation_script'],
-          'audioUrl': data['audio_url'],
-          'status': 'success',
+          'meditation': 'Received unexpected response format from server',
+          'status': 'error',
+          'error': 'Invalid response format',
         };
       } else {
         throw Exception('Failed to generate meditation: ${response.statusCode}, body: ${response.body}');

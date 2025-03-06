@@ -229,6 +229,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // Initialize polling variables
     _pollCount = 0;
     
+    setState(() {
+      _statusMessage = 'Starting meditation generation...';
+      _progressPercent = 5; // Start with a small progress indication
+    });
+    
     // Start polling
     _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
       _pollJobStatus();
@@ -236,8 +241,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Increment poll count
       _pollCount++;
       
-      // If we've been polling for too long (2 minutes), stop
-      if (_pollCount > 60) {
+      // If we've been polling for too long (10 minutes), stop
+      if (_pollCount > 300) {
         timer.cancel();
         setState(() {
           _isLoading = false;
@@ -254,9 +259,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final response = await ApiService.getMeditationStatus(_jobId!);
       
       setState(() {
-        _progressPercent = response['progress'] ?? 0;
+        // Update progress percentage
+        _progressPercent = response['progress'] ?? _progressPercent;
         
-        // Update status message
+        // Update status message based on server status
         final status = response['status'];
         if (status == 'generating_script') {
           _statusMessage = 'Creating your personalized meditation script...';
@@ -291,6 +297,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     } catch (e) {
       print('Error polling job status: $e');
       // Don't cancel the timer on error, just keep trying
+      // But update the status message to show we're still working
+      setState(() {
+        _statusMessage = 'Still waiting for your meditation (this may take a few minutes)...';
+      });
     }
   }
 
@@ -298,11 +308,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final stressDescription = _inputController.text.trim();
     if (stressDescription.isEmpty) return;
 
+    // Reset and start loading state
     setState(() {
       _isLoading = true;
       _meditation = '';
       _progressPercent = 0;
-      _statusMessage = 'Starting meditation generation...';
+      _statusMessage = 'Connecting to meditation server...';
+      _jobId = null; // Reset job ID
     });
     
     // Reset audio player whenever we generate a new meditation
@@ -312,12 +324,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Send request to the backend server
       final response = await ApiService.processText(stressDescription);
       
-      // Check if response contains a job ID
+      // Check if response contains a job ID for async processing
       if (response.containsKey('job_id')) {
         _jobId = response['job_id'];
+        print('Started async job: $_jobId');
         _startPollingJobStatus();
       } 
-      // If we got an immediate response
+      // If we got an immediate response with meditation content
       else if (response['status'] == 'success' && response['meditation'] != null) {
         setState(() {
           _meditation = response['meditation'];
@@ -329,7 +342,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           }
         });
       } 
-      // If we got an error
+      // If we got an error response
       else {
         setState(() {
           _meditation = response['meditation'] ?? 'Sorry, we had trouble generating your meditation.';
@@ -552,7 +565,75 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       ),
                       
                       // Meditation Result
-                      if (_meditation.isNotEmpty) ...[
+                      if (_isLoading)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            // Progress bar with percentage
+                            Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: LinearProgressIndicator(
+                                      value: _progressPercent > 0 ? _progressPercent / 100 : null,
+                                      backgroundColor: Colors.white.withOpacity(0.1),
+                                      color: Theme.of(context).colorScheme.primary,
+                                      minHeight: 10,
+                                    ),
+                                  ),
+                                ),
+                                if (_progressPercent > 0)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.surface.withOpacity(0.7),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      '${_progressPercent.round()}%',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Theme.of(context).colorScheme.primary,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            
+                            const SizedBox(height: 20),
+                            
+                            // Status message
+                            Text(
+                              _statusMessage,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            
+                            const SizedBox(height: 8),
+                            
+                            // Subtitle explaining the wait
+                            Text(
+                              'Creating your personalized meditation takes a bit of time. Please be patient...',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.6),
+                                fontSize: 14,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                            
+                            const SizedBox(height: 24),
+                          ],
+                        )
+                      else if (_meditation.isNotEmpty) ...[
                         const SizedBox(height: 48),
                         Container(
                           decoration: BoxDecoration(
