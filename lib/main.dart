@@ -338,52 +338,103 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   
   Future<void> _pollJobStatus() async {
     if (_jobId == null) return;
-
+    
     try {
       final response = await ApiService.getMeditationStatus(_jobId!);
-
+      
+      // Get the current status and substage
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
-      final int backendProgress = (response['progress'] as num?)?.toInt() ?? 0;
-
-      int newProgress = _progressPercent;
-
-      if (status == 'generating_audio' && substage == 'processing') {
-        // Directly reflect backend progress for f5tts audio generation
-        newProgress = backendProgress;
-      } else if (status == 'completed') {
-        newProgress = 100;
-      }
-
-      // Ensure progress never goes backwards
-      newProgress = math.max(newProgress, _progressPercent);
-
-      setState(() {
-        _progressPercent = newProgress;
-        _statusMessage = 'Generating your meditation audio...';
-      });
-
+      
+      // PROGRESS BAR FOCUSED ONLY ON PROCESSING SUBSTAGE
+      int newProgress = 0;
+      
       if (status == 'completed') {
+        // Complete
+        newProgress = 100;
+      } else if (status == 'generating_audio' && substage == 'processing') {
+        // Get the actual progress from the backend for the processing substage
+        // Convert it directly to 0-100 scale
+        final int processingProgress = (response['progress'] as num?)?.toInt() ?? 0;
+        newProgress = processingProgress;
+      } else if (status == 'generating_audio' && substage == 'post_processing') {
+        // Post-processing is complete - show 100%
+        newProgress = 100;
+      } else if (status == 'finalizing') {
+        // Finalizing means processing completed
+        newProgress = 100;
+      } else {
+        // Any other stage - show 0% since we're waiting for processing
+        newProgress = 0;
+      }
+      
+      // Update the state
+      setState(() {
+        // Update progress percentage
+        _progressPercent = newProgress;
+        
+        // Update status message
+        switch (status) {
+          case 'initializing':
+            _statusMessage = 'Starting your meditation...';
+            break;
+          case 'generating_script':
+            _statusMessage = 'Creating your personalized meditation script...';
+            break;
+          case 'preparing_audio':
+            _statusMessage = 'Preparing for audio generation...';
+            break;
+          case 'generating_audio':
+            if (substage == 'initializing') {
+              _statusMessage = 'Initializing audio generation...';
+            } else if (substage == 'chunking') {
+              _statusMessage = 'Preparing audio resources...';
+            } else if (substage == 'processing') {
+              _statusMessage = 'Generating your meditation audio... ${newProgress}%';
+            } else if (substage == 'post_processing') {
+              _statusMessage = 'Adding ambient background sounds...';
+            } else {
+              _statusMessage = 'Generating your meditation audio...';
+            }
+            break;
+          case 'finalizing':
+            _statusMessage = 'Finalizing your meditation...';
+            break;
+          default:
+            _statusMessage = 'Processing your meditation...';
+        }
+      });
+      
+      // Check if the job is completed
+      if (response['status'] == 'completed') {
         _pollingTimer?.cancel();
+        
         setState(() {
           _meditation = response['meditation_script'] ?? '';
           _audioUrl = response['audio_url'];
           _isLoading = false;
           _statusMessage = '';
-          _progressPercent = 100;
+          _progressPercent = 100; // Ensure we show 100% when complete
         });
-      } else if (status == 'error') {
+      }
+      
+      // Check if there was an error
+      else if (response['status'] == 'error') {
         _pollingTimer?.cancel();
+        
         setState(() {
           _meditation = 'Sorry, we encountered an error: ${response['error']}';
           _isLoading = false;
           _statusMessage = '';
         });
       }
+      
     } catch (e) {
       print('Error polling job status: $e');
+      // Don't cancel the timer on error, just keep trying
+      // But update the status message to show we're still working
       setState(() {
-        _statusMessage = 'Still waiting for your meditation (this may take a few minutes)...';
+        _statusMessage = 'Still waiting for your meditation...';
       });
     }
   }
@@ -971,9 +1022,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         
         const SizedBox(height: 8),
         
-        // Subtitle explaining the wait
+        // Subtitle explaining progress
         Text(
-          'Creating your personalized meditation takes a bit of time. Please be patient...',
+          _progressPercent > 0 
+              ? 'Generating audio content for your meditation...'
+              : 'Preparing your personalized meditation. Audio generation will begin soon...',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.white.withOpacity(0.6),
