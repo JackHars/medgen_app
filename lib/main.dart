@@ -76,21 +76,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _progressPercent = 0;
   String _statusMessage = '';
   
-  // Progress tracking for smoother updates
-  int _lastServerProgress = 0;
-  DateTime? _progressStartTime;
-  DateTime? _lastProgressUpdateTime;
-  // Rebalanced stage weights - 10% for script, 90% for audio
-  Map<String, int> _stageWeights = {
-    'generating_script': 10, // Script generation (minimal weight)
-    'generating_audio': 90,  // Audio generation (majority of time)
-  };
-  Map<String, int> _audioSubstageWeights = {
-    'initializing': 5,
-    'chunking': 10,
-    'processing': 75, // Processing takes most of the audio generation time
-    'post_processing': 10,
-  };
+  // Time-based progress tracking
+  Timer? _progressTimer;
   
   // Audio player state
   bool _isPlaying = false;
@@ -227,6 +214,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _audioProgressController.dispose();
     _audioPlayer.dispose();
     _pollingTimer?.cancel();
+    _progressTimer?.cancel(); // Don't forget to cancel the new timer
     for (final controller in _starControllers) {
       controller.dispose();
     }
@@ -312,16 +300,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   void _startPollingJobStatus() {
-    // Cancel any existing timer
+    // Cancel any existing timers
     _pollingTimer?.cancel();
+    _progressTimer?.cancel();
     
     // Initialize polling variables
     _pollCount = 0;
-    _lastServerProgress = 0;
-    _progressStartTime = DateTime.now();
-    _lastProgressUpdateTime = _progressStartTime;
+    _progressPercent = 0;
     
-    // Reset processing stage tracking
+    // Reset all tracking variables
     _lastSubstage = null;
     _processingJustStarted = false;
     _inProcessingStage = false;
@@ -334,7 +321,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _progressPercent = 0; // Start with 0% progress
     });
     
-    // Start polling
+    // Start polling for job status
     _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
       _pollJobStatus();
       
@@ -344,6 +331,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // If we've been polling for too long (10 minutes), stop
       if (_pollCount > 300) {
         timer.cancel();
+        _progressTimer?.cancel();
         setState(() {
           _isLoading = false;
           _meditation = 'Sorry, the meditation is taking longer than expected. Please try again.';
@@ -362,70 +350,47 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
       
-      // Debug print to understand what's happening
-      print('Poll $_pollCount: Status=$status, Substage=$substage, ServerProgress=${response['progress']}, LastSubstage=$_lastSubstage');
+      // For debugging only - we don't use the server's progress value at all
+      print('Poll $_pollCount: Status=$status, Substage=$substage');
       
-      // Enhanced detection of processing stage transition
-      bool justEnteredProcessing = false;
+      // Detect when we enter and exit the processing stage
       if (status == 'generating_audio' && substage == 'processing' && !_inProcessingStage) {
-        justEnteredProcessing = true;
+        // We just entered processing stage
         _inProcessingStage = true;
-        _processingStartPollCount = _pollCount;
-        print('PROCESSING STAGE JUST STARTED at poll $_pollCount');
-      }
-      
-      // Update last substage for next comparison
-      _lastSubstage = substage;
-      
-      // PROGRESS BAR FOCUSED ONLY ON PROCESSING SUBSTAGE
-      int newProgress = 0;
-      
-      if (status == 'completed') {
-        // Complete
-        newProgress = 100;
-      } else if (status == 'generating_audio' && substage == 'processing') {
-        if (justEnteredProcessing) {
-          // Force to exactly 0% when processing just started
-          newProgress = 0;
-          print('FORCING progress to 0% at start of processing');
-        } else {
-          // For the first 5 polls after processing starts, show very low progress
-          // This ensures we never jump to a high percentage immediately
-          int pollsSinceProcessingStarted = _pollCount - _processingStartPollCount;
-          if (pollsSinceProcessingStarted <= 5) {
-            // Force a gradual start: 0, 1, 2, 3, 4, 5%
-            newProgress = pollsSinceProcessingStarted;
-            print('RAMPING UP progress: $newProgress% (poll $pollsSinceProcessingStarted after processing start)');
-          } else {
-            // After 5 polls, use the actual progress from the backend
-            final int processingProgress = (response['progress'] as num?)?.toInt() ?? 0;
-            // Ensure progress never decreases
-            newProgress = math.max(_progressPercent, processingProgress);
-            print('NORMAL progress tracking: $newProgress%');
-          }
-        }
-      } else if (status == 'generating_audio' && substage == 'post_processing') {
-        // Post-processing is complete - show 100%
-        newProgress = 100;
-        _inProcessingStage = false;
-      } else if (status == 'finalizing') {
-        // Finalizing means processing completed
-        newProgress = 100;
-        _inProcessingStage = false;
-      } else {
-        // Any other stage - show 0% since we're waiting for processing
-        newProgress = 0;
-        _inProcessingStage = false;
-      }
-      
-      print('Setting progress to: $newProgress%');
-      
-      // Update the state
-      setState(() {
-        // Update progress percentage
-        _progressPercent = newProgress;
+        _progressPercent = 0; // Always start at exactly 0%
         
-        // Update status message
+        // Cancel any existing progress timer
+        _progressTimer?.cancel();
+        
+        // Start a smooth progress timer that increments from 0% to 99% over 3 minutes
+        // This is purely time-based and doesn't use any values from the server
+        _progressTimer = Timer.periodic(const Duration(milliseconds: 2000), (timer) {
+          setState(() {
+            // Cap at 99% - we'll set to 100% only when complete
+            if (_progressPercent < 99) {
+              _progressPercent += 1; // Increment by 1% every 2 seconds
+              print('TIME-BASED PROGRESS: $_progressPercent%');
+            } else {
+              timer.cancel(); // Stop the timer when we reach 99%
+            }
+          });
+        });
+        
+        print('PROCESSING STAGE STARTED - beginning smooth progress timer from 0%');
+      } 
+      else if ((status == 'completed' || substage == 'post_processing' || status == 'finalizing') && _inProcessingStage) {
+        // We're exiting the processing stage
+        _inProcessingStage = false;
+        _progressTimer?.cancel(); // Stop the progress timer
+        setState(() {
+          _progressPercent = 100; // Always end at exactly 100%
+        });
+        print('PROCESSING STAGE COMPLETED - setting progress to 100%');
+      }
+      
+      // Update status message without changing progress (which is handled by the timer)
+      setState(() {
+        // Status message updates
         switch (status) {
           case 'initializing':
             _statusMessage = 'Starting your meditation...';
@@ -442,7 +407,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             } else if (substage == 'chunking') {
               _statusMessage = 'Preparing audio resources...';
             } else if (substage == 'processing') {
-              _statusMessage = 'Generating your meditation audio... ${newProgress}%';
+              _statusMessage = 'Generating your meditation audio... ${_progressPercent}%';
             } else if (substage == 'post_processing') {
               _statusMessage = 'Adding ambient background sounds...';
             } else {
@@ -460,6 +425,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Check if the job is completed
       if (response['status'] == 'completed') {
         _pollingTimer?.cancel();
+        _progressTimer?.cancel();
         
         setState(() {
           _meditation = response['meditation_script'] ?? '';
@@ -473,6 +439,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Check if there was an error
       else if (response['status'] == 'error') {
         _pollingTimer?.cancel();
+        _progressTimer?.cancel();
         
         setState(() {
           _meditation = 'Sorry, we encountered an error: ${response['error']}';
@@ -483,8 +450,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       
     } catch (e) {
       print('Error polling job status: $e');
-      // Don't cancel the timer on error, just keep trying
-      // But update the status message to show we're still working
+      // Don't cancel the timers on error, just keep trying
       setState(() {
         _statusMessage = 'Still waiting for your meditation...';
       });
@@ -876,7 +842,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                                       fontSize: 12,
                                                       color: Colors.white.withOpacity(0.7),
                                                     ),
-                                                  ),
                                                   // Total duration
                                                   Text(
                                                     _formatDuration(_audioDuration?.inSeconds ?? 0),
