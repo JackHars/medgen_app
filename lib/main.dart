@@ -346,6 +346,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
       
+      // Initialize progress variable
+      int estimatedProgress = 0;
+      
       // Simplified progress tracking with ONLY script generation (0-10%) and processing (10-90%)
       if (status == 'initializing') {
         // Script generation phase - fixed at beginning
