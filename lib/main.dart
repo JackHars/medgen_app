@@ -913,7 +913,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       
                       // Footer
                       Text(
-                        '© 2025 Oneiro',
+                        '© 2025 Oneiro - Jack Harsfai',
                         style: GoogleFonts.inter(
                           fontSize: 14,
                           color: Colors.white.withOpacity(0.5),
