@@ -7,8 +7,8 @@ import 'dart:async';
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter/foundation.dart';
 
-// Debug mode flag - set to false to use actual backend
-const bool kDebugMode = false;
+// Debug mode flag - set to true to use local development backend
+const bool kDebugMode = true;
 
 // Pre-generated meditation content for debug mode
 const Map<String, String> kDebugMeditations = {

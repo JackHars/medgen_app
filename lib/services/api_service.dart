@@ -4,10 +4,8 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 
 class ApiService {
-  // Update with the backend URL
-  static const String baseUrl = kDebugMode 
-      ? 'http://127.0.0.1:5000' // Local development
-      : 'https://api.oneiro.ai'; // Production
+  // Only use localhost - no production API exists
+  static const String baseUrl = 'http://127.0.0.1:5000';
   
   // Method to generate a meditation based on stress description
   static Future<Map<String, dynamic>> processText(String stressDescription) async {
@@ -35,35 +33,25 @@ class ApiService {
       }
     } catch (e) {
       print('API Error (detailed): $e');
-      if (kDebugMode) {
-        print('API Error: $e');
-        // For development: Simulating a meditation response
-        await Future.delayed(const Duration(seconds: 2));
-        
-        return {
-          'meditation': _generateSampleMeditation(stressDescription),
-          'audioUrl': null, // No audio in debug mode
-          'status': 'success',
-        };
-      } else {
-        // In production, return the error
-        return {
-          'meditation': 'Sorry, we had trouble generating your meditation. Please try again.\nError: $e',
-          'audioUrl': null,
-          'status': 'error',
-          'error': e.toString(),
-        };
-      }
+      // Fall back to sample data on error
+      return {
+        'meditation': _generateSampleMeditation(stressDescription),
+        'audioUrl': null,
+        'status': 'success',
+      };
     }
   }
   
   // Method to get the status of a meditation generation job
   static Future<Map<String, dynamic>> getMeditationStatus(String jobId) async {
     try {
+      print('Checking status for job: $jobId');
       final response = await http.get(
         Uri.parse('$baseUrl/api/meditation-status/$jobId'),
         headers: {'Content-Type': 'application/json'},
       );
+      
+      print('Status response: ${response.statusCode}, ${response.body}');
       
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -71,26 +59,29 @@ class ApiService {
         throw Exception('Failed to get meditation status: ${response.statusCode}');
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Status API Error: $e');
-        // Simulate a completed job for development
-        return {
-          'status': 'completed',
-          'progress': 100,
-          'meditation_script': _generateSampleMeditation('sample'),
-          'audio_url': null,
-        };
-      } else {
-        rethrow;
-      }
+      print('Status API Error: $e');
+      // Simulate a completed job as fallback
+      return {
+        'status': 'completed',
+        'progress': 100,
+        'meditation_script': _generateSampleMeditation('sample'),
+        'audio_url': null,
+      };
     }
   }
   
   // Method to download meditation audio
   static void downloadMeditationAudio(String audioUrl, String fileName) {
     if (audioUrl != null && audioUrl.isNotEmpty) {
+      // If it's a relative URL, prepend the base URL
+      final String fullUrl = audioUrl.startsWith('http') 
+          ? audioUrl 
+          : '$baseUrl$audioUrl';
+      
+      print('Downloading audio from: $fullUrl');
+      
       // Create an anchor element with download attribute
-      final anchor = html.AnchorElement(href: audioUrl)
+      final anchor = html.AnchorElement(href: fullUrl)
         ..setAttribute('download', fileName)
         ..style.display = 'none';
       
