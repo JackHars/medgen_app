@@ -10,138 +10,7 @@ import 'package:flutter/foundation.dart';
 // Debug mode flag - set to true to use local development backend
 const bool kDebugMode = true;
 
-// Pre-generated meditation content for debug mode
-const Map<String, String> kDebugMeditations = {
-  'anxiety': '''Close your eyes and take a long, deep breath. Allow your shoulders to relax as you exhale completely.
-
-Feel the weight of anxiety begin to dissolve with each breath. Your mind, like the night sky above, is vast and boundless - your anxious thoughts are merely passing clouds.
-
-Bring your attention to your body, starting from your toes. With each inhale, imagine cool, calming energy entering. With each exhale, tension melts away.
-
-Notice the sensations in your feet... your legs... your torso... your arms... your neck... and finally your head. Your body is becoming heavier, more relaxed with each breath.
-
-The universe has existed for billions of years, and will continue long after our concerns have faded. In this cosmic perspective, today's worries are but tiny specks.
-
-You are safe in this moment. Nothing requires your immediate attention or concern. The simple act of breathing is all that matters now.
-
-When anxious thoughts arise, simply observe them like stars in the night sky. No need to reach for them or push them away - just acknowledge their presence and let them be.
-
-Remember that you are not your thoughts. You are the awareness watching them come and go, like constellations moving across the vast expanse of your consciousness.
-
-Carry this starlit calm with you as you slowly return to awareness of your surroundings.''',
-
-  'sleep': '''Make yourself comfortable, allowing your body to sink heavily into your bed. Feel the gentle support beneath you.
-
-Your only task now is to follow your breath as it naturally flows in and out, like gentle waves on a moonlit shore.
-
-With each exhale, feel yourself drifting deeper into relaxation. Your eyelids are becoming heavier, your thoughts slower.
-
-Imagine a soft, cosmic light surrounding your body, gradually relaxing each part as it touches you. From your toes to the crown of your head, every muscle releases its tension.
-
-The night sky above you is filled with countless stars, each one watching over you as you prepare for rest. Their gentle light bathes you in tranquility.
-
-Your mind is slowing down now, thoughts becoming distant and dreamlike. There is nothing to analyze, nothing to solve, nothing to plan.
-
-Feel yourself floating in this peaceful space between wakefulness and sleep. Like an astronaut drifting in the serene void of space, you are weightless and free.
-
-Time stretches out infinitely before you. There is no rush, nowhere to be, nothing to do but surrender to the embrace of sleep.
-
-Your breath is becoming slower, deeper. Your consciousness is beginning to drift like a feather on a gentle breeze.
-
-Allow yourself to let go completely now, surrendering to the healing power of deep, restorative sleep.''',
-
-  'stress': '''Take a moment to settle into a comfortable position. Allow your breath to find its natural rhythm.
-
-As you breathe in, imagine drawing in cosmic energy from the universe around you. As you breathe out, release the tension you've been carrying.
-
-Feel the weight of stress and responsibility gradually lifting from your shoulders with each exhale. Like stars scattered across the night sky, your concerns can be observed from a distance.
-
-Bring awareness to any areas of tension in your body. Perhaps your jaw, your shoulders, or your hands. With gentle attention, invite these areas to soften and release.
-
-The demands of daily life often create the illusion of urgency. In this moment, recognize that very few things require immediate attention. Time is more expansive than it appears.
-
-Imagine your mind as a clear night sky. Thoughts may appear like shooting stars, briefly illuminating your awareness before fading away. There's no need to chase them.
-
-With each breath, you're creating space between yourself and your stressors. This space is filled with clarity, perspective, and calm.
-
-Remember that you have navigated challenges before, and you carry that wisdom with you always. Trust in your ability to handle whatever comes your way.
-
-When you're ready, carry this sense of spacious calm back into your day, knowing you can return to this peaceful state whenever you choose.''',
-
-  'focus': '''Begin by taking a deep, centering breath. Feel your lungs expand fully, and then release completely.
-
-Direct your attention to this present moment. Like a telescope focusing on a single distant star, your mind can zoom in with remarkable clarity when not scattered across the galaxy of distractions.
-
-Notice any sounds in your environment without judging them. Simply acknowledge their presence and let them fade into the background of your awareness.
-
-Now bring your attention to the sensation of your breath at the tip of your nostrils. Cool air flowing in, warm air flowing out. This single point of focus becomes your anchor.
-
-When you notice your mind wandering—as it naturally will—gently guide it back to your breath with kindness. Each return is a strengthening of your mental focus.
-
-Imagine your concentration as a beam of light, illuminating exactly what needs your attention right now. Everything else can remain in soft darkness, waiting for its moment.
-
-With each breath, your mind becomes clearer, more alert, more present. Distractions lose their pull as you cultivate this quality of focused awareness.
-
-Feel the satisfaction that comes with directing your mind where you choose, rather than being pulled in multiple directions. This is the power of concentrated attention.
-
-Carry this focused awareness with you as you return to your tasks, knowing you can reconnect with this state whenever you need clarity and direction.''',
-
-  'confidence': '''Sit or stand in a position that feels strong and dignified. Take a deep breath and straighten your spine, allowing your shoulders to relax downward.
-
-As you breathe in, imagine drawing in the brilliant energy of a supernova, filling your entire being with light and power. As you exhale, release any self-doubt or hesitation.
-
-Bring to mind a moment when you felt truly capable and confident. Remember how your body felt, what thoughts were present, and the energy that flowed through you. Know that this state is always accessible to you.
-
-Picture yourself as a magnificent celestial body—a star that generates its own light. You don't need external validation to shine; it's your natural state.
-
-Consider the vast universe and your unique place within it. No one else has your specific combination of talents, experiences, and perspectives. Your contribution matters.
-
-With each breath, repeat silently to yourself: "I am capable. I am worthy. I am enough." Let these truths sink deeply into your consciousness.
-
-Imagine roots extending from your body deep into the earth, providing unwavering stability and confidence. At the same time, feel your energy extending upward, connecting to infinite possibility.
-
-When you encounter challenges, they are simply opportunities to shine more brightly. Difficulty reveals your strength, not your limitations.
-
-Carry this celestial confidence with you as you return to your day, knowing that like the stars themselves, your inner light is constant, even when temporarily obscured from view.''',
-
-  'gratitude': '''Begin by taking a few deep breaths, allowing your body to relax and your mind to become present. Feel yourself settling into this moment.
-
-Bring your awareness to the miracle of existence itself. Like a rare celestial event, the chances of you being here, now, in this form, are infinitesimally small yet gloriously real.
-
-Consider your connection to the stars themselves. The elements that form your body were forged in the heart of ancient stars billions of years ago. You are, quite literally, made of stardust.
-
-Think of one person who has positively impacted your life. Feel the warmth of gratitude spreading through your chest as you acknowledge their gift to you, whether large or small.
-
-Bring to mind something in nature that fills you with wonder—perhaps the night sky, the ocean, or a single flower. Take a moment to appreciate the beauty that exists all around us, freely offered.
-
-Acknowledge your own body and the countless processes it performs without any conscious effort from you. Your beating heart, your breathing lungs, your intricate brain—all working in perfect harmony.
-
-Consider a challenge you've faced that ultimately led to growth. Express gratitude for this difficulty and the strength it helped you discover.
-
-Expand your awareness to include the vast network of people, plants, animals, and systems that make your daily life possible. From farmers to truck drivers, from rain clouds to pollinators—all playing their part in supporting your existence.
-
-Carry this constellation of gratitude with you throughout your day, knowing that an appreciative heart creates space for even more abundance and joy.''',
-
-  'grounding': '''Find a comfortable position and take a deep breath in through your nose. As you exhale through your mouth, feel yourself becoming more present in this moment.
-
-Imagine cosmic roots extending from the base of your spine deep into the Earth. With each breath, these roots grow stronger, anchoring you firmly to the ground beneath you.
-
-Bring your awareness to the points where your body makes contact with the floor or chair. Feel the solid support beneath you, holding you securely.
-
-Notice five things you can see around you. Observe their colors, shapes, and textures with full attention, as if seeing them for the first time.
-
-Become aware of four things you can touch. Perhaps the texture of your clothing, the temperature of the air on your skin, or the surface beneath your hands.
-
-Listen for three distinct sounds in your environment. Without labeling them as pleasant or unpleasant, simply notice their qualities and how they arise and fade.
-
-Identify two scents you can smell, or simply notice the sensation of air entering your nostrils as you breathe.
-
-Finally, notice one taste in your mouth, even if it's subtle.
-
-Feel how this simple practice has drawn you back from the vastness of thought into the reality of your physical experience. Like a meteor returning to Earth, you have come back to the ground of your being.
-
-Carry this embodied presence with you as you move through your day, knowing you can return to this grounded state whenever you feel adrift or overwhelmed.''',
-};
+// No pre-generated content - all meditations come from the backend
 
 void main() {
   runApp(const MeditationApp());
@@ -440,67 +309,32 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _resetAudioPlayer();
 
     try {
-      if (kDebugMode) {
-        // Simulate network delay
-        await Future.delayed(const Duration(seconds: 1));
-        
-        // Use debug content based on keywords in input
-        final input = stressDescription.toLowerCase();
-        String result = '';
-        
-        if (input.contains('anxious') || input.contains('anxiety') || input.contains('worry')) {
-          result = kDebugMeditations['anxiety']!;
-        } else if (input.contains('sleep') || input.contains('insomnia') || input.contains('tired')) {
-          result = kDebugMeditations['sleep']!;
-        } else if (input.contains('stress') || input.contains('overwhelm') || input.contains('pressure')) {
-          result = kDebugMeditations['stress']!;
-        } else if (input.contains('focus') || input.contains('concentrate') || input.contains('distract')) {
-          result = kDebugMeditations['focus']!;
-        } else if (input.contains('confidence') || input.contains('doubt') || input.contains('afraid')) {
-          result = kDebugMeditations['confidence']!;
-        } else if (input.contains('gratitude') || input.contains('thankful') || input.contains('appreciate')) {
-          result = kDebugMeditations['gratitude']!;
-        } else if (input.contains('ground') || input.contains('center') || input.contains('present')) {
-          result = kDebugMeditations['grounding']!;
-        } else {
-          // Default to a random meditation for other inputs
-          final keys = kDebugMeditations.keys.toList();
-          final randomKey = keys[_random.nextInt(keys.length)];
-          result = kDebugMeditations[randomKey]!;
-        }
-        
+      // Send request to the backend server
+      final response = await ApiService.processText(stressDescription);
+      
+      // Check if response contains a job ID
+      if (response.containsKey('job_id')) {
+        _jobId = response['job_id'];
+        _startPollingJobStatus();
+      } 
+      // If we got an immediate response
+      else if (response['status'] == 'success' && response['meditation'] != null) {
         setState(() {
-          _meditation = result;
+          _meditation = response['meditation'];
+          _isLoading = false;
+          
+          // Handle audio URL if available
+          if (response['audioUrl'] != null && response['audioUrl'].isNotEmpty) {
+            _audioUrl = response['audioUrl'];
+          }
+        });
+      } 
+      // If we got an error
+      else {
+        setState(() {
+          _meditation = response['meditation'] ?? 'Sorry, we had trouble generating your meditation.';
           _isLoading = false;
         });
-      } else {
-        // Use actual API in non-debug mode
-        final response = await ApiService.processText(stressDescription);
-        
-        // If we got an immediate response (e.g. sample or error)
-        if (response['status'] == 'success' && response['meditation'] != null) {
-          setState(() {
-            _meditation = response['meditation'];
-            _isLoading = false;
-            
-            // Handle audio URL if available
-            if (response['audioUrl'] != null && response['audioUrl'].isNotEmpty) {
-              _audioUrl = response['audioUrl'];
-            }
-          });
-        } 
-        // If we got a job ID for an asynchronous job
-        else if (response['job_id'] != null) {
-          _jobId = response['job_id'];
-          _startPollingJobStatus();
-        } 
-        // If we got an error
-        else {
-          setState(() {
-            _meditation = response['meditation'] ?? 'Sorry, we had trouble generating your meditation.';
-            _isLoading = false;
-          });
-        }
       }
     } catch (e) {
       setState(() {

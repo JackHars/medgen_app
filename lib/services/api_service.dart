@@ -33,11 +33,12 @@ class ApiService {
       }
     } catch (e) {
       print('API Error (detailed): $e');
-      // Fall back to sample data on error
+      // Return error message
       return {
-        'meditation': _generateSampleMeditation(stressDescription),
+        'meditation': 'Unable to connect to meditation server. Please check your connection and try again.',
         'audioUrl': null,
-        'status': 'success',
+        'status': 'error',
+        'error': e.toString(),
       };
     }
   }
@@ -60,12 +61,11 @@ class ApiService {
       }
     } catch (e) {
       print('Status API Error: $e');
-      // Simulate a completed job as fallback
+      // Return error status
       return {
-        'status': 'completed',
-        'progress': 100,
-        'meditation_script': _generateSampleMeditation('sample'),
-        'audio_url': null,
+        'status': 'error',
+        'progress': 0,
+        'error': 'Failed to connect to server: $e',
       };
     }
   }
@@ -91,60 +91,6 @@ class ApiService {
       
       // Clean up
       anchor.remove();
-    }
-  }
-  
-  // Helper method to generate a sample meditation for development
-  static String _generateSampleMeditation(String stressDescription) {
-    // Simplified logic to create a somewhat relevant meditation
-    final String lowercaseDesc = stressDescription.toLowerCase();
-    
-    if (lowercaseDesc.contains('work') || lowercaseDesc.contains('deadline') || lowercaseDesc.contains('overwhelm')) {
-      return '''Find a comfortable position and gently close your eyes. Take a deep breath in through your nose for 4 counts... and exhale through your mouth for 6 counts.
-
-As you continue breathing deeply, notice the weight of work expectations and deadlines gradually lifting from your shoulders with each exhale. Your workplace challenges are temporary, but your inner peace is always accessible.
-
-Imagine yourself completing your tasks with ease and clarity, one step at a time. There is no rush, only steady progress.
-
-Now, bring your awareness to any tension you might be holding in your body. With each breath, consciously release that tension, starting from your forehead, moving down to your shoulders, your chest, and all the way to your toes.
-
-Remember that you are more than your work. You are a being of limitless potential, simply experiencing a temporary challenge that will soon pass.
-
-In this moment, you are exactly where you need to be. All is well.
-
-When you're ready, gently wiggle your fingers and toes, and slowly open your eyes, carrying this sense of calm with you throughout your day.''';
-    } else if (lowercaseDesc.contains('sleep') || lowercaseDesc.contains('insomnia') || lowercaseDesc.contains('rest')) {
-      return '''Make yourself comfortable, whether you're lying in bed or sitting in a relaxing position. Close your eyes gently and begin to notice your breath, flowing in and out naturally.
-
-With each inhale, feel a wave of relaxation entering your body. With each exhale, feel tension and wakefulness draining away.
-
-Imagine a soft, warm light slowly traveling through your body, starting at your toes. As this healing light touches each part of you, that area becomes completely relaxed and heavy.
-
-The light moves slowly up your feet... your ankles... your calves... your knees... making each part heavy and relaxed. Continue this journey through your entire body, all the way to the crown of your head.
-
-Now picture yourself in a peaceful place – perhaps a quiet beach at sunset, or a meadow filled with soft grass. The air is perfectly comfortable, and you feel safe and protected.
-
-With each breath, you sink deeper into relaxation. Your mind becomes quieter, your thoughts slower and more distant.
-
-Remember that sleep is a natural process. You don't need to force it – simply create the conditions and allow it to come in its own time. Release any worries about sleeping and rest in the simple peace of this moment.
-
-Continue breathing slowly and deeply, allowing your consciousness to drift like leaves on a gentle stream, carrying you toward restful sleep.''';
-    } else {
-      return '''Close your eyes and take a long, deep breath in through your nose. Hold it for a moment, then exhale completely through your mouth. Continue breathing deeply, allowing each breath to be fuller and more relaxing than the last.
-
-As you breathe, become aware of any tension you're holding in your body. With each exhale, intentionally release that tension, letting it melt away.
-
-Now, bring your attention to the present moment. Not the past with its memories, not the future with its expectations – just this moment, right here, right now.
-
-Acknowledge any thoughts that arise without judgment. See them as clouds passing in the sky of your mind. You don't need to chase them or push them away – simply observe them as they come and go.
-
-Return your focus to your breath, that constant companion that has been with you since your first moment and will be with you until your last.
-
-With each inhale, imagine drawing in peace, clarity, and strength. With each exhale, release worry, stress, and anything that doesn't serve you.
-
-Remember that you are not your thoughts or emotions – you are the awareness that observes them. In this space of awareness, there is always peace.
-
-Take a few more deep breaths, and when you're ready, gently wiggle your fingers and toes, and slowly open your eyes, carrying this sense of calm awareness with you.''';
     }
   }
 } 
