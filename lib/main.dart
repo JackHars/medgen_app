@@ -75,6 +75,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _pollCount = 0;
   int _progressPercent = 0;
   String _statusMessage = '';
+  Map<String, dynamic>? _lastResponseData; // Store the most recent API response
   
   // Progress tracking for smoother updates
   int _lastServerProgress = 0;
@@ -309,6 +310,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     try {
       final response = await ApiService.getMeditationStatus(_jobId!);
       
+      // Store the most recent response for use in status messages
+      _lastResponseData = response;
+      
       // Get the current status and substage
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
@@ -363,9 +367,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           final int current = (response['current'] as num?)?.toInt() ?? 1;
           final int total = (response['total'] as num?)?.toInt() ?? 1;
           
+          // Log batch information to debug
+          print('Batch progress: $current of $total (${(current * 100 / total).toStringAsFixed(1)}%)');
+          
           // Now we can calculate a more precise progress within the audio processing phase
           // Audio processing is allocated 52-85% in backend (33% range)
-          // This maps to roughly 30-85% in our scale
+          // This maps to roughly 30-85% in our scale (55% range)
           
           if (total > 0) {
             // For small batch counts (3 or fewer), the backend provides more granular updates
@@ -376,16 +383,33 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               
               // Calculate a smoother progress for small batches
               // Each batch represents 1/total of the processing range
-              // For 3 batches: batch 1 (30-48%), batch 2 (48-66%), batch 3 (66-85%)
               final double batchRangeSize = 55.0 / total; // 55% range (30-85%) divided by total batches
               final double batchStartPercent = 30.0 + (current - 1) * batchRangeSize;
               final double intraProgress = batchProgress * batchRangeSize;
               
               estimatedProgress = (batchStartPercent + intraProgress).toInt();
             } else {
-              // For larger batch counts, calculate based on completed percentage
-              // Allocate 30-85% range for processing
-              estimatedProgress = 30 + ((current * 55) ~/ total);
+              // For larger batch counts (like 45), distribute the 55% range (30-85%) evenly
+              // The formula ensures each batch increment moves the progress bar appropriately
+              final double processingRange = 55.0; // 30-85% range for audio processing
+              final double percentComplete = current / total;
+              final double processProgress = processingRange * percentComplete;
+              
+              // Add the processing progress to the base 30% (start of processing phase)
+              // This ensures we move from 30% to 85% as we process all batches
+              estimatedProgress = 30 + processProgress.toInt();
+              
+              // Ensure we don't exceed the upper bound for processing
+              estimatedProgress = math.min(estimatedProgress, 85);
+              
+              // For very large batch counts (>20), add a slight curve to the progress
+              // to make it feel more responsive at the beginning
+              if (total > 20 && current < total / 3) {
+                // Add a small boost to early progress (up to 5%)
+                final double boostFactor = 1.0 - (current / (total / 3));
+                final int boost = (5 * boostFactor).toInt();
+                estimatedProgress += boost;
+              }
             }
           }
         }
@@ -407,15 +431,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Apply a smoother continuous progress during batch processing
       // We'll advance the progress bar even between poll updates
       if (status == 'generating_audio' && substage == 'processing') {
-        // For processing stage, if it's been at least 500ms since last update,
+        // For processing stage, if it's been at least 350ms since last update,
         // increment progress slightly to show continuous movement
-        if (elapsedSinceLastUpdateMs > 500) {
+        if (elapsedSinceLastUpdateMs > 350) {
           // Get the next milestone to ensure we don't exceed it
           int nextMilestone = _getNextMilestone(status, substage);
           
-          // Increment by a small amount (0.5%)
+          // Increment by a small amount (0.5-1%)
           if (_progressPercent < nextMilestone - 1) {
-            estimatedProgress = math.max(estimatedProgress, _progressPercent + 1);
+            // Calculate increment based on batch size - smaller increment for higher batch counts
+            final int current = (response['current'] as num?)?.toInt() ?? 1;
+            final int total = (response['total'] as num?)?.toInt() ?? 1;
+            
+            // Calculate increment - smaller for larger batch counts
+            final double incrementFactor = total > 30 ? 0.5 : 1.0;
+            final int increment = math.max(1, (incrementFactor).toInt());
+            
+            estimatedProgress = math.max(estimatedProgress, _progressPercent + increment);
             _lastProgressUpdateTime = now;
           }
         }
@@ -525,19 +557,29 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         } else if (substage == 'chunking') {
           _statusMessage = 'Breaking down text for natural speech patterns...';
         } else if (substage == 'processing') {
+          // Get batch information if available
+          final int current = _lastResponseData?['current'] as int? ?? 0;
+          final int total = _lastResponseData?['total'] as int? ?? 0;
+          
+          // Include batch information in status message if available
+          String batchInfo = '';
+          if (total > 0 && current > 0) {
+            batchInfo = ' (Batch ${current.toString().padLeft(2, '0')} of ${total.toString().padLeft(2, '0')})';
+          }
+          
           // Use different messages based on progress to keep it interesting
           switch ((_progressPercent ~/ 10) % 4) {
             case 0:
-              _statusMessage = 'Generating your meditation voice...';
+              _statusMessage = 'Generating your meditation voice$batchInfo...';
               break;
             case 1:
-              _statusMessage = 'Creating soothing voice patterns...';
+              _statusMessage = 'Creating soothing voice patterns$batchInfo...';
               break;
             case 2:
-              _statusMessage = 'Crafting a calming vocal tone...';
+              _statusMessage = 'Crafting a calming vocal tone$batchInfo...';
               break;
             case 3:
-              _statusMessage = 'Generating peaceful audio narration...';
+              _statusMessage = 'Generating peaceful audio narration$batchInfo...';
               break;
           }
         } else if (substage == 'post_processing') {
