@@ -331,8 +331,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       
       // Allocate progress: 15% for text generation, 85% for audio generation
       if (status == 'initializing') {
-        // Initialization (0-5%)
-        estimatedProgress = 5;
+        // Initialization (0-3%)
+        estimatedProgress = 3;
       } else if (status == 'generating_script') {
         // Script generation (0-15%)
         final int scriptProgress = (response['progress'] as num?)?.toInt() ?? 0;
@@ -344,46 +344,51 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         estimatedProgress += (preparingProgress * 5) ~/ 100;
       } else if (status == 'generating_audio') {
         // Audio generation (20-95%)
-        estimatedProgress = 20; // Script + prep complete
+        // Base audio progress starts at 20% (after script generation)
+        estimatedProgress = 20;
         
-        // Calculate audio generation progress
-        final int audioRemainingWeight = 75; // 95% - 20% = 75% for audio generation
+        // The backend allocates 45-90% for audio generation (45% range)
+        // We need to map this to our 20-95% range (75% range)
+        // The formula is: frontend_progress = 20 + (backend_progress - 45) * (75/45)
         
-        // Progress based on substage
-        double audioProgress = 0;
-        
-        if (substage == 'initializing') {
-          audioProgress = 0.05; // Just started audio (5% of audio weight)
-        } else if (substage == 'chunking') {
-          audioProgress = 0.10; // Chunking (10% of audio weight)
-        } else if (substage == 'processing') {
-          // Processing (10-90% of audio weight)
-          final int current = response['current'] ?? 1;
-          final int total = response['total'] ?? 1;
-          
-          if (total > 0) {
-            // If we have batch info, calculate based on current/total
-            audioProgress = 0.10 + 0.80 * (current / total);
-          } else {
-            // Time-based estimation when no batch info
-            // Assume processing takes about 60 seconds total
-            const int estimatedProcessingTimeMs = 60000;
-            audioProgress = 0.10 + 0.80 * math.min(1.0, totalElapsedMs / estimatedProcessingTimeMs);
-          }
-        } else if (substage == 'post_processing') {
-          audioProgress = 0.95; // Post-processing (95% of audio weight)
-        } else {
-          // If no substage, use time-based estimation
-          // Assume audio generation takes about 90 seconds total
-          const int estimatedAudioTimeMs = 90000;
-          audioProgress = math.min(0.95, totalElapsedMs / estimatedAudioTimeMs);
+        final int backendProgress = (response['progress'] as num?)?.toInt() ?? 45;
+        if (backendProgress > 45) {
+          // Map backend progress (45-90%) to our range (20-95%)
+          estimatedProgress = 20 + ((backendProgress - 45) * 75) ~/ 45;
         }
         
-        // Cap audio progress at 0.95 (95% of audio weight)
-        audioProgress = math.min(0.95, audioProgress);
-        
-        // Apply the audio progress to the audio weight
-        estimatedProgress += (audioProgress * audioRemainingWeight).toInt();
+        // Enhanced batch tracking for the 'processing' substage
+        if (substage == 'processing') {
+          // Get current batch and total batches information
+          final int current = (response['current'] as num?)?.toInt() ?? 1;
+          final int total = (response['total'] as num?)?.toInt() ?? 1;
+          
+          // Now we can calculate a more precise progress within the audio processing phase
+          // Audio processing is allocated 52-85% in backend (33% range)
+          // This maps to roughly 30-85% in our scale
+          
+          if (total > 0) {
+            // For small batch counts (3 or fewer), the backend provides more granular updates
+            // including intra-batch progress
+            if (total <= 3) {
+              // For small batches, use more detailed intra-batch progress if available
+              final double batchProgress = (response['batch_progress'] as num?)?.toDouble() ?? 0.0;
+              
+              // Calculate a smoother progress for small batches
+              // Each batch represents 1/total of the processing range
+              // For 3 batches: batch 1 (30-48%), batch 2 (48-66%), batch 3 (66-85%)
+              final double batchRangeSize = 55.0 / total; // 55% range (30-85%) divided by total batches
+              final double batchStartPercent = 30.0 + (current - 1) * batchRangeSize;
+              final double intraProgress = batchProgress * batchRangeSize;
+              
+              estimatedProgress = (batchStartPercent + intraProgress).toInt();
+            } else {
+              // For larger batch counts, calculate based on completed percentage
+              // Allocate 30-85% range for processing
+              estimatedProgress = 30 + ((current * 55) ~/ total);
+            }
+          }
+        }
       } else if (status == 'finalizing') {
         // Finalizing (95-99%)
         estimatedProgress = 95;
@@ -399,8 +404,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // Check if progress appears stalled
       bool progressStalled = estimatedProgress <= _progressPercent;
       
-      // If progress appears stalled for more than 1.5 seconds, apply small increments
-      if (progressStalled && elapsedSinceLastUpdateMs > 1500) {
+      // Apply a smoother continuous progress during batch processing
+      // We'll advance the progress bar even between poll updates
+      if (status == 'generating_audio' && substage == 'processing') {
+        // For processing stage, if it's been at least 500ms since last update,
+        // increment progress slightly to show continuous movement
+        if (elapsedSinceLastUpdateMs > 500) {
+          // Get the next milestone to ensure we don't exceed it
+          int nextMilestone = _getNextMilestone(status, substage);
+          
+          // Increment by a small amount (0.5%)
+          if (_progressPercent < nextMilestone - 1) {
+            estimatedProgress = math.max(estimatedProgress, _progressPercent + 1);
+            _lastProgressUpdateTime = now;
+          }
+        }
+      }
+      // For other stalled stages, use the standard approach
+      else if (progressStalled && elapsedSinceLastUpdateMs > 1500) {
         // Determine next milestone based on current status
         int nextMilestone = _getNextMilestone(status, substage);
         
@@ -475,10 +496,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     
     if (status == 'generating_audio') {
       if (substage == 'initializing') return 25;
-      if (substage == 'chunking') return 35;
-      if (substage == 'processing') return 90;
+      if (substage == 'chunking') return 30;
+      if (substage == 'processing') return 85;
       if (substage == 'post_processing') return 95;
-      return 90; // Default for audio generation
+      return 85; // Default for audio generation
     }
     
     if (status == 'finalizing') return 99;
@@ -500,11 +521,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case 'generating_audio':
         // For audio generation, use different messages for each substage
         if (substage == 'initializing') {
-          _statusMessage = 'Starting audio generation...';
+          _statusMessage = 'Initializing voice generation...';
         } else if (substage == 'chunking') {
-          _statusMessage = 'Preparing voice patterns...';
+          _statusMessage = 'Breaking down text for natural speech patterns...';
         } else if (substage == 'processing') {
-          _statusMessage = 'Generating your meditation voice...';
+          // Use different messages based on progress to keep it interesting
+          switch ((_progressPercent ~/ 10) % 4) {
+            case 0:
+              _statusMessage = 'Generating your meditation voice...';
+              break;
+            case 1:
+              _statusMessage = 'Creating soothing voice patterns...';
+              break;
+            case 2:
+              _statusMessage = 'Crafting a calming vocal tone...';
+              break;
+            case 3:
+              _statusMessage = 'Generating peaceful audio narration...';
+              break;
+          }
         } else if (substage == 'post_processing') {
           _statusMessage = 'Adding ambient background sounds...';
         } else {
@@ -534,15 +569,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _progressPercent = 0; // Start with 0% progress
     });
     
-    // Start polling with a faster interval for more responsive updates
-    _pollingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    // Start with a faster polling interval for more responsive updates
+    // 750ms provides a good balance between server load and UI responsiveness
+    _pollingTimer = Timer.periodic(const Duration(milliseconds: 750), (timer) {
       _pollJobStatus();
       
       // Increment poll count
       _pollCount++;
       
       // If we've been polling for too long (10 minutes), stop
-      if (_pollCount > 600) { // 10 minutes at 1 second intervals
+      if (_pollCount > 800) { // 10 minutes at 750ms intervals
         timer.cancel();
         setState(() {
           _isLoading = false;
