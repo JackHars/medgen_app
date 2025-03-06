@@ -346,42 +346,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final String status = response['status'] ?? 'pending';
       final String? substage = response['substage'];
       
-      // Calculate weighted progress based on stages
-      int estimatedProgress = 0;
-      
-      // Track completion of each stage
+      // Simplified progress tracking with ONLY script generation (0-10%) and processing (10-90%)
       if (status == 'initializing') {
-        // Consider initialization as part of script generation
-        estimatedProgress = 2; // Starting indication
+        // Script generation phase - fixed at beginning
+        estimatedProgress = 2;
       } else if (status == 'generating_script') {
-        // Script generation (0-10%)
+        // Script generation phase (0-10%)
         final int scriptProgress = (response['progress'] as num?)?.toInt() ?? 0;
         estimatedProgress = (scriptProgress * 10) ~/ 100;
-      } else if (status == 'preparing_audio') {
-        // Completed script generation, preparing for audio (10-20%)
-        estimatedProgress = 10; // Script generation complete
-        final int preparingProgress = (response['progress'] as num?)?.toInt() ?? 0;
-        estimatedProgress += (preparingProgress * 10) ~/ 100; // Increased weight for preparation
-      } else if (status == 'generating_audio') {
-        // Process different substages
-        if (substage == 'initializing' || substage == 'chunking') {
-          // These are now part of preparation phase (10-20%)
-          estimatedProgress = 10;
-          final int prepProgress = (response['progress'] as num?)?.toInt() ?? 0;
-          
-          // Distribute weights: initializing (10-15%), chunking (15-20%)
-          if (substage == 'initializing') {
-            estimatedProgress += 5 * prepProgress ~/ 100; // 10-15%
-          } else { // chunking
-            estimatedProgress = 15; // initializing complete
-            estimatedProgress += 5 * prepProgress ~/ 100; // 15-20%
-          }
+      } else if (status == 'preparing_audio' || status == 'generating_audio') {
+        // Check the substage for audio generation
+        if (status == 'preparing_audio' || substage == 'initializing' || substage == 'chunking') {
+          // These phases don't contribute to progress - stay at script completion
+          estimatedProgress = 10; // Script generation complete, waiting for processing
         } else if (substage == 'processing') {
-          // Only processing counts as audio generation (20-90%)
-          estimatedProgress = 20; // Preparation phases complete
+          // ONLY processing counts for progress (10-90%)
+          estimatedProgress = 10; // Start at script completion
           
           // Calculate audio generation progress for processing only
-          final int audioWeight = 70; // 90% - 20% = 70% for processing
+          final int audioWeight = 80; // 90% - 10% = 80% for processing
           
           final int current = response['current'] ?? 1;
           final int total = response['total'] ?? 1;
@@ -433,7 +416,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             estimatedProgress = 85;
           }
         } else if (substage == 'post_processing') {
-          estimatedProgress = 90; // Almost done with audio
+          estimatedProgress = 90; // Processing is complete, final touches
+        } else {
+          // Default for other substages - stay at script completion
+          estimatedProgress = 10;
         }
       } else if (status == 'finalizing') {
         // Treat finalizing as completing the audio generation (95-100%)
@@ -455,26 +441,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       
       // If progress appears stalled, apply small increments to keep bar moving
       if (progressStalled && elapsedSinceLastUpdate > 3000) {
-        // Get next milestone based on current status
+        // Get next milestone based on current status - simplified for ONLY processing progress
         int nextMilestone = 100;
         if (status == 'generating_script') {
           nextMilestone = 10;
-        } else if (status == 'preparing_audio') {
-          nextMilestone = 20;
-        } else if (status == 'generating_audio') {
-          if (substage == 'initializing') {
-            nextMilestone = 15; // Part of preparation now
-          } else if (substage == 'chunking') {
-            nextMilestone = 20; // Part of preparation now
+        } else if (status == 'preparing_audio' || status == 'generating_audio') {
+          if (substage == 'initializing' || substage == 'chunking' || status == 'preparing_audio') {
+            // No progress for these phases - stay at script completion
+            nextMilestone = 10;
           } else if (substage == 'processing') {
-            // Processing is the only actual audio generation phase now
+            // Processing is the ONLY phase that contributes to progress
             final timeInProcessing = now.difference(_progressStartTime!).inMilliseconds;
             if (timeInProcessing > 120000) { // If in processing for more than 2 minutes
               nextMilestone = 90; // Allow it to reach completion levels
             } else if (timeInProcessing > 60000) { // If in processing for more than 1 minute
-              nextMilestone = 80; // Allow higher progress after a minute
+              nextMilestone = 70; // Allow higher progress after a minute
             } else {
-              nextMilestone = 70; // Normal milestone for processing
+              nextMilestone = 50; // Normal milestone for processing
             }
           } else if (substage == 'post_processing') {
             nextMilestone = 95; // Post-processing is near completion
@@ -539,12 +522,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             _statusMessage = 'Creating your personalized meditation script...';
             break;
           case 'preparing_audio':
+            _statusMessage = 'Preparing for audio generation...';
+            break;
           case 'generating_audio':
             // For audio generation, use different messages for each substage
-            if (substage == 'initializing' || substage == 'chunking') {
-              _statusMessage = 'Starting audio generation...';
+            if (substage == 'initializing') {
+              _statusMessage = 'Initializing audio generation...';
+            } else if (substage == 'chunking') {
+              _statusMessage = 'Preparing audio resources...';
             } else if (substage == 'processing') {
-              _statusMessage = 'Generating your meditation...';
+              _statusMessage = 'Generating your meditation audio...';
             } else if (substage == 'post_processing') {
               _statusMessage = 'Adding ambient background sounds...';
             } else {
