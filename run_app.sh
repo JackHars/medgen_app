@@ -23,6 +23,8 @@ RUN_FRONTEND=true
 BACKEND_HOST="127.0.0.1"  # Default to localhost only
 DISABLE_AUTH=false
 API_KEY_ARG=""  # For storing API key passed as argument
+CUSTOM_BACKEND_IP="192.162.2.116"  # Default backend IP for frontend-only mode
+DEBUG_MODE=false  # Advanced debugging mode
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -44,8 +46,25 @@ while [[ $# -gt 0 ]]; do
       fi
       shift
       ;;
+    --backend-ip)
+      # Allow specifying a custom backend IP when running frontend
+      if [[ -n "$2" ]]; then
+        CUSTOM_BACKEND_IP="$2"
+        echo -e "${GREEN}Custom backend IP specified: $CUSTOM_BACKEND_IP${NC}"
+        shift  # Extra shift to consume the IP argument
+      else
+        echo -e "${RED}Error: --backend-ip requires an IP address argument${NC}"
+        exit 1
+      fi
+      shift
+      ;;
     --no-auth)
       DISABLE_AUTH=true
+      shift
+      ;;
+    --debug)
+      DEBUG_MODE=true
+      echo -e "${YELLOW}Advanced debugging mode enabled${NC}"
       shift
       ;;
     -h|--help)
@@ -53,14 +72,17 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --backend            Run only the backend server (open to LAN)"
       echo "  --frontend [KEY]     Run only the frontend UI, optionally providing API key"
+      echo "  --backend-ip IP      Specify custom backend IP address (default: 192.162.2.116)"
       echo "  --no-auth            Disable API key authentication (not recommended for LAN)"
+      echo "  --debug              Enable advanced debugging mode"
       echo "  -h, --help           Show this help message"
       echo ""
       echo "Examples:"
-      echo "  ./run_app.sh                         # Run both frontend and backend locally"
-      echo "  ./run_app.sh --backend               # Run only the backend (LAN accessible)"
-      echo "  ./run_app.sh --frontend              # Run only the frontend, will prompt for API key"
-      echo "  ./run_app.sh --frontend APIKEY123    # Run frontend with provided API key"
+      echo "  ./run_app.sh                                 # Run both frontend and backend locally"
+      echo "  ./run_app.sh --backend                       # Run only the backend (LAN accessible)"
+      echo "  ./run_app.sh --frontend                      # Run only the frontend, will prompt for API key"
+      echo "  ./run_app.sh --frontend APIKEY123            # Run frontend with provided API key"
+      echo "  ./run_app.sh --frontend APIKEY123 --backend-ip 10.0.1.5  # Connect to specific backend IP"
       echo ""
       exit 0
       ;;
@@ -227,7 +249,36 @@ if [[ $RUN_FRONTEND == true ]]; then
     # Check if we're in frontend-only mode or running on a different machine
     if [[ $RUN_BACKEND == false ]]; then
         echo -e "${YELLOW}Note: Running in frontend-only mode${NC}"
-        echo -e "${GREEN}Configuring API to connect to 192.162.2.116:5000${NC}"
+        
+        # Extract the hostname from IP for better diagnostic messages
+        echo -e "${GREEN}Configuring API to connect to $CUSTOM_BACKEND_IP:5000${NC}"
+        
+        # Test connectivity to the backend server before proceeding
+        echo -e "${YELLOW}Testing connectivity to the backend server...${NC}"
+        if command -v curl &> /dev/null; then
+            # Use curl if available
+            echo -e "${YELLOW}Attempting to reach backend health endpoint...${NC}"
+            HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" "http://$CUSTOM_BACKEND_IP:5000/api/health" --connect-timeout 5)
+            if [[ $HEALTH_CHECK == "200" ]]; then
+                echo -e "${GREEN}Backend server is reachable at http://$CUSTOM_BACKEND_IP:5000${NC}"
+            else
+                echo -e "${RED}WARNING: Backend server health check failed with status $HEALTH_CHECK${NC}"
+                echo -e "${RED}Make sure the backend is running at http://$CUSTOM_BACKEND_IP:5000${NC}"
+                echo -e "${YELLOW}Continuing anyway, but the application may not function correctly...${NC}"
+            fi
+        elif command -v nc &> /dev/null; then
+            # Use netcat as an alternative
+            echo -e "${YELLOW}Checking if port 5000 is open on $CUSTOM_BACKEND_IP...${NC}"
+            if nc -z -w5 $CUSTOM_BACKEND_IP 5000; then
+                echo -e "${GREEN}Port 5000 is open on $CUSTOM_BACKEND_IP${NC}"
+            else
+                echo -e "${RED}WARNING: Cannot connect to $CUSTOM_BACKEND_IP:5000${NC}"
+                echo -e "${RED}Make sure the backend is running and the port is accessible${NC}"
+                echo -e "${YELLOW}Check for firewalls or other network restrictions${NC}"
+            fi
+        else
+            echo -e "${YELLOW}Cannot test connection (curl or nc not available)${NC}"
+        fi
         
         # Create a backup of the original API service file if it doesn't exist
         if [ ! -f "lib/services/api_service.dart.bak" ]; then
@@ -236,7 +287,13 @@ if [[ $RUN_FRONTEND == true ]]; then
         fi
         
         # Update the API base URL to point to the specified IP
-        sed -i.tmp "s|static const String baseUrl = 'http://127.0.0.1:5000'|static const String baseUrl = 'http://192.162.2.116:5000'|g" lib/services/api_service.dart
+        sed -i.tmp "s|static const String baseUrl = 'http://127.0.0.1:5000'|static const String baseUrl = 'http://$CUSTOM_BACKEND_IP:5000'|g" lib/services/api_service.dart
+        
+        # Add debug logging to help diagnose issues
+        echo -e "${YELLOW}Adding verbose logging to API service...${NC}"
+        LOG_PATTERN="print('API Error (detailed): \$e');"
+        VERBOSE_LOG="print('API Error (detailed): \$e'); print('Connection attempted to: \$baseUrl'); print('Network error details: \${e.toString()}');"
+        sed -i.tmp "s|$LOG_PATTERN|$VERBOSE_LOG|g" lib/services/api_service.dart
         
         # If API key is needed, check if we need to ask for it
         if [[ $DISABLE_AUTH == false ]]; then
@@ -254,10 +311,74 @@ if [[ $RUN_FRONTEND == true ]]; then
                 # Insert the API key initialization into the API service
                 sed -i.tmp "s|static String? apiKey;|static String? apiKey = '$API_KEY';|g" lib/services/api_service.dart
                 echo -e "${GREEN}API key configured for authentication${NC}"
+                
+                # Verify API key length
+                if [[ ${#API_KEY} != 64 ]]; then
+                    echo -e "${RED}WARNING: API key length (${#API_KEY}) is not 64 characters.${NC}"
+                    echo -e "${RED}The key may be incomplete or invalid.${NC}"
+                fi
             fi
         fi
         
         rm -f lib/services/api_service.dart.tmp
+        
+        # If in debug mode, run more extensive network diagnostics
+        if [[ $DEBUG_MODE == true ]]; then
+            echo -e "${YELLOW}Running advanced network diagnostics...${NC}"
+            
+            # Check general network connectivity
+            echo -e "${YELLOW}Checking general internet connectivity...${NC}"
+            if ping -c 1 google.com &> /dev/null; then
+                echo -e "${GREEN}Internet connection is working${NC}"
+            else
+                echo -e "${RED}WARNING: Cannot reach internet. Network may be restricted${NC}"
+            fi
+            
+            # Try to get more details about the backend connection
+            echo -e "${YELLOW}Attempting detailed connection to backend...${NC}"
+            if command -v curl &> /dev/null; then
+                # Show detailed curl output in debug mode
+                echo -e "${YELLOW}Sending detailed request to backend health endpoint...${NC}"
+                echo -e "${YELLOW}curl -v http://$CUSTOM_BACKEND_IP:5000/api/health${NC}"
+                curl -v http://$CUSTOM_BACKEND_IP:5000/api/health
+                echo ""  # Add newline after curl output
+            fi
+            
+            # Try traceroute to see the network path
+            if command -v traceroute &> /dev/null; then
+                echo -e "${YELLOW}Tracing route to backend server...${NC}"
+                traceroute -m 5 $CUSTOM_BACKEND_IP
+            fi
+            
+            # Check if we're using the correct API key format and authentication headers
+            if [[ -n $API_KEY ]]; then
+                echo -e "${YELLOW}Testing API key authentication...${NC}"
+                if command -v curl &> /dev/null; then
+                    echo -e "${YELLOW}Sending authenticated request to backend verify-key endpoint...${NC}"
+                    AUTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: $API_KEY" "http://$CUSTOM_BACKEND_IP:5000/api/verify-key" --connect-timeout 5)
+                    if [[ $AUTH_CHECK == "200" ]]; then
+                        echo -e "${GREEN}API key authentication successful${NC}"
+                    else
+                        echo -e "${RED}WARNING: API key authentication failed with status $AUTH_CHECK${NC}"
+                        echo -e "${RED}Make sure the API key is correct and the backend is properly configured${NC}"
+                    fi
+                fi
+            fi
+            
+            # Make sure we're changing the API service file correctly
+            echo -e "${YELLOW}Checking API service modifications...${NC}"
+            echo -e "${YELLOW}Configured API base URL: ${GREEN}http://$CUSTOM_BACKEND_IP:5000${NC}"
+            echo -e "${YELLOW}Configured API Key: ${GREEN}${API_KEY:0:6}...${API_KEY: -6}${NC}"
+            
+            # Modify Flutter run command for better debugging
+            echo -e "${YELLOW}Launching Flutter in debug mode with verbose logging...${NC}"
+            flutter run -d chrome --web-hostname 127.0.0.1 --web-port 8080 --verbose &
+            FLUTTER_PID=$!
+        else
+            echo -e "${YELLOW}Launching Flutter in debug mode for better error logging...${NC}"
+            flutter run -d chrome --web-hostname 127.0.0.1 --web-port 8080 &
+            FLUTTER_PID=$!
+        fi
     else
         # If we're running both frontend and backend, restore the original API URL if needed
         if [ -f "lib/services/api_service.dart.bak" ]; then
@@ -265,9 +386,6 @@ if [[ $RUN_FRONTEND == true ]]; then
             echo -e "${YELLOW}Restored API service file to use localhost${NC}"
         fi
     fi
-    
-    flutter run --release -d chrome --web-hostname 127.0.0.1 --web-port 8080 &
-    FLUTTER_PID=$!
 fi
 
 # Wait for user to press Ctrl+C
