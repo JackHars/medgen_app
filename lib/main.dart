@@ -10,6 +10,9 @@ import 'package:flutter/foundation.dart';
 // Debug mode flag - set to true to use local development backend
 const bool kDebugMode = true;
 
+// UI Development mode - set to true to work on UI without backend
+const bool kUiDevMode = true;
+
 // No pre-generated content - all meditations come from the backend
 
 void main() {
@@ -343,6 +346,87 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _pollJobStatus() async {
     if (_jobId == null) return;
     
+    // Use mock data in UI development mode
+    if (kUiDevMode) {
+      // Simulate different stages based on polling count
+      String status = 'generating_audio';
+      String? substage;
+      
+      if (_pollCount < 3) {
+        status = 'generating_script';
+      } else if (_pollCount < 5) {
+        status = 'preparing_audio';
+      } else if (_pollCount < 12) {
+        status = 'generating_audio';
+        if (_pollCount < 6) {
+          substage = 'initializing';
+        } else if (_pollCount < 7) {
+          substage = 'chunking';
+        } else if (_pollCount < 11) {
+          substage = 'processing';
+        } else {
+          substage = 'post_processing';
+        }
+      } else if (_pollCount < 13) {
+        status = 'finalizing';
+      } else {
+        // Complete the job after enough polls
+        status = 'completed';
+        _pollingTimer?.cancel();
+        _progressTimer?.cancel();
+        
+        setState(() {
+          _meditation = _generateMockMeditationScript();
+          _audioUrl = 'https://soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'; // Sample MP3
+          _isLoading = false;
+          _statusMessage = '';
+          _progressPercent = 100;
+        });
+        return;
+      }
+      
+      // For debugging only - we don't use the server's progress value at all
+      print('Poll $_pollCount: Status=$status, Substage=$substage (MOCK)');
+      
+      // Detect when we enter and exit the processing stage
+      if (status == 'generating_audio' && substage == 'processing' && !_inProcessingStage) {
+        // We just entered processing stage
+        _inProcessingStage = true;
+        _progressPercent = 0; // Always start at exactly 0%
+        
+        // Cancel any existing progress timer
+        _progressTimer?.cancel();
+        
+        // Start a smooth progress timer that increments from 0% to 99% over 3 minutes
+        // This is purely time-based and doesn't use any values from the server
+        _progressTimer = Timer.periodic(const Duration(milliseconds: 1500), (timer) {
+          setState(() {
+            // Cap at 99% - we'll set to 100% only when complete
+            if (_progressPercent < 99) {
+              _progressPercent += 1; // Increment by 1% every 1.5 seconds
+              print('TIME-BASED PROGRESS: $_progressPercent%');
+            } else {
+              timer.cancel(); // Stop the timer when we reach 99%
+            }
+          });
+        });
+        
+        print('PROCESSING STAGE STARTED - beginning smooth progress timer from 0%');
+      } 
+      else if ((status == 'completed' || substage == 'post_processing' || status == 'finalizing') && _inProcessingStage) {
+        // We're exiting the processing stage
+        _inProcessingStage = false;
+        _progressTimer?.cancel(); // Stop the progress timer
+        setState(() {
+          _progressPercent = 100; // Always end at exactly 100%
+        });
+        print('PROCESSING STAGE COMPLETED - setting progress to 100%');
+      }
+      
+      return;
+    }
+    
+    // Non-UI dev mode - make actual API call
     try {
       final response = await ApiService.getMeditationStatus(_jobId!);
       
@@ -420,6 +504,29 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
+  // Helper to generate a mock meditation script
+  String _generateMockMeditationScript() {
+    return '''
+Welcome to your personalized meditation journey.
+
+Find a comfortable position, either sitting or lying down, and allow your body to relax. Take a deep breath in through your nose, filling your lungs completely, and then exhale slowly through your mouth, releasing any tension you might be holding.
+
+As you continue to breathe naturally, focus your attention on the gentle rhythm of your breath. With each inhale, imagine drawing in peaceful energy, and with each exhale, release any worries or stress that you've been carrying.
+
+Now, visualize yourself in a peaceful garden. The air is fresh and carries the subtle fragrance of flowers. You can hear the gentle rustle of leaves and the distant sound of water flowing.
+
+Take a moment to fully immerse yourself in this tranquil space. Feel the warmth of sunlight on your skin, notice the vibrant colors around you, and listen to the harmonious sounds of nature.
+
+As you explore this serene environment, acknowledge that this is your personal sanctuary—a place where you can always return to find peace and clarity.
+
+Continue to breathe deeply and naturally, allowing each breath to bring you deeper into this state of relaxation. You are safe, you are supported, and you are exactly where you need to be.
+
+When you're ready to return to your day, take one final deep breath, and as you exhale, gently open your eyes, carrying this sense of peace and mindfulness with you.
+
+Remember, you can return to this meditation practice whenever you need a moment of calm and centeredness in your life.
+''';
+  }
+
   Future<void> _generateMeditation() async {
     final stressDescription = _inputController.text.trim();
     if (stressDescription.isEmpty) return;
@@ -436,6 +543,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // Reset audio player whenever we generate a new meditation
     _resetAudioPlayer();
 
+    // Use mock data in UI development mode
+    if (kUiDevMode) {
+      // Simulate a short loading time
+      await Future.delayed(const Duration(seconds: 1));
+      
+      // Generate a fake job ID
+      String mockJobId = 'mock-${DateTime.now().millisecondsSinceEpoch}';
+      _jobId = mockJobId;
+      
+      print('Started mock job: $_jobId');
+      _startPollingJobStatus();
+      return;
+    }
+
+    // Only make actual API calls if not in UI dev mode
     try {
       // Send request to the backend server
       final response = await ApiService.processText(stressDescription);
@@ -644,13 +766,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         child: Row(
                           children: [
                             Padding(
-                              padding: const EdgeInsets.only(left: 16),
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
                               child: Icon(
                                 Icons.spa_outlined,
                                 color: Theme.of(context).colorScheme.primary,
                               ),
                             ),
-                            const SizedBox(width: 8),
                             Expanded(
                               child: TextField(
                                 controller: _inputController,
