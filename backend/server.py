@@ -14,7 +14,8 @@ import secrets
 import hashlib
 
 app = Flask(__name__)
-CORS(app)  # Enable Cross-Origin Resource Sharing
+# Update CORS configuration to allow all origins, methods, and headers
+CORS(app, resources={r"/*": {"origins": "*", "allow_headers": "*", "methods": "*"}})
 
 # Directory to store generated meditations
 UPLOAD_FOLDER = 'generated_meditations'

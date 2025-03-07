@@ -11,7 +11,7 @@ import 'package:flutter/foundation.dart';
 const bool kDebugMode = true;
 
 // UI Development mode - set to true to work on UI without backend
-const bool kUiDevMode = true;
+const bool kUiDevMode = false;
 
 // No pre-generated content - all meditations come from the backend
 

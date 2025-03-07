@@ -23,7 +23,7 @@ RUN_FRONTEND=true
 BACKEND_HOST="127.0.0.1"  # Default to localhost only
 DISABLE_AUTH=false
 API_KEY_ARG=""  # For storing API key passed as argument
-CUSTOM_BACKEND_IP="192.162.2.116"  # Default backend IP for frontend-only mode
+CUSTOM_BACKEND_IP="192.168.2.116"  # Default backend IP for frontend-only mode
 DEBUG_MODE=false  # Advanced debugging mode
 
 # Parse command line arguments
