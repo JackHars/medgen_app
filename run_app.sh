@@ -22,19 +22,26 @@ RUN_BACKEND=true
 RUN_FRONTEND=true
 BACKEND_HOST="127.0.0.1"  # Default to localhost only
 DISABLE_AUTH=false
+API_KEY_ARG=""  # For storing API key passed as argument
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --backend-only)
+    --backend)
       RUN_BACKEND=true
       RUN_FRONTEND=false
       BACKEND_HOST="0.0.0.0"  # Open to LAN when running backend only
       shift
       ;;
-    --frontend-only)
+    --frontend)
       RUN_BACKEND=false
       RUN_FRONTEND=true
+      # Check if the next argument exists and doesn't start with --
+      if [[ -n "$2" && ! "$2" == --* ]]; then
+        API_KEY_ARG="$2"
+        echo -e "${GREEN}API key provided via command line argument${NC}"
+        shift  # Extra shift to consume the API key argument
+      fi
       shift
       ;;
     --no-auth)
@@ -44,12 +51,17 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       echo "Usage: ./run_app.sh [OPTIONS]"
       echo "Options:"
-      echo "  --backend-only    Run only the backend server (open to LAN)"
-      echo "  --frontend-only   Run only the frontend UI"
-      echo "  --no-auth         Disable API key authentication (not recommended for LAN)"
-      echo "  -h, --help        Show this help message"
+      echo "  --backend            Run only the backend server (open to LAN)"
+      echo "  --frontend [KEY]     Run only the frontend UI, optionally providing API key"
+      echo "  --no-auth            Disable API key authentication (not recommended for LAN)"
+      echo "  -h, --help           Show this help message"
       echo ""
-      echo "If run without options, both backend and frontend will run on the same machine (localhost only)"
+      echo "Examples:"
+      echo "  ./run_app.sh                         # Run both frontend and backend locally"
+      echo "  ./run_app.sh --backend               # Run only the backend (LAN accessible)"
+      echo "  ./run_app.sh --frontend              # Run only the frontend, will prompt for API key"
+      echo "  ./run_app.sh --frontend APIKEY123    # Run frontend with provided API key"
+      echo ""
       exit 0
       ;;
     *)
@@ -159,12 +171,16 @@ if [[ $RUN_BACKEND == true ]]; then
             
             if [[ -n $API_KEY ]]; then
                 echo -e "${GREEN}API Key obtained for secure communication${NC}"
+                echo -e "${YELLOW}API KEY: ${GREEN}$API_KEY${NC}"
+                echo -e "${YELLOW}SAVE THIS KEY! You'll need it to connect the frontend.${NC}"
             else
                 # More flexible pattern matching for the API key
                 API_KEY=$(grep -E "API Key|api key|Key:|key:" backend/backend_output.log | grep -oE '[a-f0-9]{64}')
                 
                 if [[ -n $API_KEY ]]; then
                     echo -e "${GREEN}API Key obtained for secure communication${NC}"
+                    echo -e "${YELLOW}API KEY: ${GREEN}$API_KEY${NC}"
+                    echo -e "${YELLOW}SAVE THIS KEY! You'll need it to connect the frontend.${NC}"
                 else
                     echo -e "${YELLOW}First attempt to extract API key failed, trying alternate methods...${NC}"
                     
@@ -173,11 +189,15 @@ if [[ $RUN_BACKEND == true ]]; then
                     
                     if [[ -n $API_KEY ]]; then
                         echo -e "${GREEN}API Key extracted using pattern matching${NC}"
+                        echo -e "${YELLOW}API KEY: ${GREEN}$API_KEY${NC}"
+                        echo -e "${YELLOW}SAVE THIS KEY! You'll need it to connect the frontend.${NC}"
                     else
                         # If we still can't extract the key automatically, check if the file exists
                         if [[ -f backend/api_key.txt ]]; then
                             API_KEY=$(cat backend/api_key.txt)
                             echo -e "${GREEN}API Key loaded directly from api_key.txt file${NC}"
+                            echo -e "${YELLOW}API KEY: ${GREEN}$API_KEY${NC}"
+                            echo -e "${YELLOW}SAVE THIS KEY! You'll need it to connect the frontend.${NC}"
                         else
                             echo -e "${RED}Warning: Could not extract API key from server output${NC}"
                             echo -e "${YELLOW}You may need to manually enter the API key when prompted${NC}"
@@ -220,8 +240,12 @@ if [[ $RUN_FRONTEND == true ]]; then
         
         # If API key is needed, check if we need to ask for it
         if [[ $DISABLE_AUTH == false ]]; then
+            # First check if we got an API key from the command line argument
+            if [[ -n $API_KEY_ARG ]]; then
+                API_KEY=$API_KEY_ARG
+                echo -e "${GREEN}Using API key provided via command line${NC}"
             # If we don't have an API key (because we're not running the backend), prompt for it
-            if [[ -z $API_KEY ]]; then
+            elif [[ -z $API_KEY ]]; then
                 echo -e "${YELLOW}Please enter the API key from the backend server:${NC}"
                 read -r API_KEY
             fi
@@ -251,6 +275,16 @@ if [[ $RUN_BACKEND == true && $RUN_FRONTEND == true ]]; then
     echo -e "${GREEN}Both services are running. Press Ctrl+C to stop.${NC}"
 elif [[ $RUN_BACKEND == true ]]; then
     echo -e "${GREEN}Backend service is running. Press Ctrl+C to stop.${NC}"
+    
+    # If we're running in backend-only mode with authentication, remind the user of the API key
+    if [[ $BACKEND_HOST == "0.0.0.0" && $DISABLE_AUTH == false && -n $API_KEY ]]; then
+        echo ""
+        echo -e "${YELLOW}REMINDER: To connect a frontend to this backend, you'll need:${NC}"
+        echo -e "${YELLOW}1. The server's IP address: ${GREEN}$(hostname -I | awk '{print $1}')${NC}"
+        echo -e "${YELLOW}2. The API key: ${GREEN}$API_KEY${NC}"
+        echo -e "${YELLOW}Run the frontend with: ${GREEN}./run_app.sh --frontend $API_KEY${NC}"
+        echo ""
+    fi
 else
     echo -e "${GREEN}Frontend service is running. Press Ctrl+C to stop.${NC}"
 fi
