@@ -9,6 +9,9 @@ import traceback
 import sys
 from main import generate_meditation_script, generate_meditation_from_text, generate_tts, process_audio
 import time
+import argparse
+import secrets
+import hashlib
 
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing
@@ -21,7 +24,50 @@ if not os.path.exists(UPLOAD_FOLDER):
 # In-memory job status tracking
 jobs = {}
 
+# API Security configuration
+API_KEY_FILE = os.path.join(os.path.dirname(__file__), 'api_key.txt')
+API_KEY = None
+
+def load_or_generate_api_key():
+    """Load existing API key or generate a new one if it doesn't exist"""
+    global API_KEY
+    if os.path.exists(API_KEY_FILE):
+        with open(API_KEY_FILE, 'r') as f:
+            API_KEY = f.read().strip()
+    else:
+        # Generate a new secure API key
+        API_KEY = secrets.token_hex(32)  # 64 character hex string
+        with open(API_KEY_FILE, 'w') as f:
+            f.write(API_KEY)
+    
+    # Also create a hashed version for comparison
+    return API_KEY
+
+def require_api_key(func):
+    """Decorator to require API key for routes when API_KEY is set and host is not localhost"""
+    def wrapper(*args, **kwargs):
+        # Skip authentication if API_KEY is not set or if request is from localhost
+        if API_KEY is None or request.remote_addr in ('127.0.0.1', 'localhost'):
+            return func(*args, **kwargs)
+        
+        # Check for API key in headers
+        request_api_key = request.headers.get('X-API-Key')
+        if not request_api_key:
+            return jsonify({'error': 'API key required'}), 401
+        
+        # Validate API key
+        if request_api_key != API_KEY:
+            return jsonify({'error': 'Invalid API key'}), 403
+        
+        return func(*args, **kwargs)
+    
+    # Preserve the original function name and docstring
+    wrapper.__name__ = func.__name__
+    wrapper.__doc__ = func.__doc__
+    return wrapper
+
 @app.route('/')
+@require_api_key
 def index():
     """
     Root route that provides information about the API and redirects to the web application
@@ -33,6 +79,7 @@ def index():
     })
 
 @app.route('/api/generate-meditation', methods=['POST'])
+@require_api_key
 def generate_meditation():
     """
     API endpoint to generate a meditation from a user's worry.
@@ -353,6 +400,7 @@ def process_meditation_job(job_id, user_worry):
         jobs[job_id]['error'] = str(e)
 
 @app.route('/api/meditation-status/<job_id>', methods=['GET'])
+@require_api_key
 def meditation_status(job_id):
     """
     Check the status of a meditation generation job.
@@ -408,6 +456,7 @@ def meditation_status(job_id):
     return jsonify(response)
 
 @app.route('/api/meditation-audio/<job_id>', methods=['GET'])
+@require_api_key
 def get_meditation_audio(job_id):
     """
     API endpoint to retrieve the generated meditation audio file.
@@ -427,9 +476,47 @@ def get_meditation_audio(job_id):
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """
-    Simple health check endpoint
+    Simple health check endpoint - no auth required for basic health check
     """
     return jsonify({'status': 'ok'})
 
+@app.route('/api/verify-key', methods=['GET'])
+def verify_key():
+    """
+    Endpoint to verify API key is correct - returns 200 if valid, 403 if invalid
+    """
+    if API_KEY is None:
+        return jsonify({'status': 'no_auth_required'}), 200
+    
+    request_api_key = request.headers.get('X-API-Key')
+    if not request_api_key:
+        return jsonify({'error': 'API key required'}), 401
+    
+    if request_api_key != API_KEY:
+        return jsonify({'error': 'Invalid API key'}), 403
+        
+    return jsonify({'status': 'valid'}), 200
+
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5000, debug=False) 
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Oneiro Meditation Generator API Server')
+    parser.add_argument('--host', type=str, default='127.0.0.1', 
+                        help='Host to bind to (use 0.0.0.0 to accept connections from any IP)')
+    parser.add_argument('--port', type=int, default=5000,
+                        help='Port to listen on')
+    parser.add_argument('--debug', action='store_true',
+                        help='Run in debug mode')
+    parser.add_argument('--no-auth', action='store_true',
+                        help='Disable API key authentication')
+    
+    args = parser.parse_args()
+    
+    # Only load/generate API key if we're exposing the API to LAN and auth is not disabled
+    if args.host == '0.0.0.0' and not args.no_auth:
+        api_key = load_or_generate_api_key()
+        print(f"API Key is required for remote access. Key: {api_key}")
+    elif args.no_auth:
+        print("WARNING: API key authentication is disabled")
+    
+    # Run the Flask application with the provided arguments
+    app.run(host=args.host, port=args.port, debug=args.debug) 

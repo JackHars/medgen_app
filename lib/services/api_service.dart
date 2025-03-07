@@ -7,6 +7,37 @@ class ApiService {
   // Only use localhost - no production API exists
   static const String baseUrl = 'http://127.0.0.1:5000';
   
+  // API key for authentication when connecting to remote server
+  static String? apiKey;
+  
+  // Helper to get headers with API key if available
+  static Map<String, String> _getHeaders() {
+    final headers = {'Content-Type': 'application/json'};
+    if (apiKey != null && apiKey!.isNotEmpty) {
+      headers['X-API-Key'] = apiKey!;
+    }
+    return headers;
+  }
+  
+  // Method to verify API key with the server
+  static Future<bool> verifyApiKey() async {
+    if (apiKey == null || apiKey!.isEmpty) {
+      return false;
+    }
+    
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/verify-key'),
+        headers: _getHeaders(),
+      );
+      
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Error verifying API key: $e');
+      return false;
+    }
+  }
+  
   // Method to generate a meditation based on stress description
   static Future<Map<String, dynamic>> processText(String stressDescription) async {
     try {
@@ -14,7 +45,7 @@ class ApiService {
       // Send request to the Python backend
       final response = await http.post(
         Uri.parse('$baseUrl/api/generate-meditation'),
-        headers: {'Content-Type': 'application/json'},
+        headers: _getHeaders(),
         body: jsonEncode({'worry': stressDescription}),
       );
       
@@ -49,6 +80,13 @@ class ApiService {
           'status': 'error',
           'error': 'Invalid response format',
         };
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        // Authentication error
+        return {
+          'meditation': 'Authentication failed. Please check your API key configuration.',
+          'status': 'error',
+          'error': 'Authentication failed: ${response.statusCode}',
+        };
       } else {
         throw Exception('Failed to generate meditation: ${response.statusCode}, body: ${response.body}');
       }
@@ -70,13 +108,20 @@ class ApiService {
       print('Checking status for job: $jobId');
       final response = await http.get(
         Uri.parse('$baseUrl/api/meditation-status/$jobId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: _getHeaders(),
       );
       
       print('Status response: ${response.statusCode}, ${response.body}');
       
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        // Authentication error
+        return {
+          'status': 'error',
+          'progress': 0,
+          'error': 'Authentication failed. Please check your API key configuration.',
+        };
       } else {
         throw Exception('Failed to get meditation status: ${response.statusCode}');
       }
