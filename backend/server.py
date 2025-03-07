@@ -515,6 +515,7 @@ if __name__ == '__main__':
     if args.host == '0.0.0.0' and not args.no_auth:
         api_key = load_or_generate_api_key()
         print(f"API Key is required for remote access. Key: {api_key}")
+        print(f"API_KEY_VALUE={api_key}")
     elif args.no_auth:
         print("WARNING: API key authentication is disabled")
     

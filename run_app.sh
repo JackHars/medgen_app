@@ -146,18 +146,51 @@ if [[ $RUN_BACKEND == true ]]; then
     cd ..
 
     # Wait a moment for the backend to start
-    sleep 2
+    sleep 3  # Increased sleep time to ensure log is written
     
     # If we're using authentication and exposing to LAN, extract the API key
     if [[ $BACKEND_HOST == "0.0.0.0" && $DISABLE_AUTH == false ]]; then
         # Extract API key from log file
         if [[ -f backend/backend_output.log ]]; then
-            API_KEY=$(grep "API Key is required for remote access" backend/backend_output.log | sed 's/.*Key: \(.*\)/\1/')
+            echo -e "${YELLOW}Attempting to extract API key from server log...${NC}"
+            
+            # Try the new clear format first
+            API_KEY=$(grep "API_KEY_VALUE=" backend/backend_output.log | cut -d'=' -f2)
+            
             if [[ -n $API_KEY ]]; then
                 echo -e "${GREEN}API Key obtained for secure communication${NC}"
             else
-                echo -e "${RED}Warning: Could not extract API key from server output${NC}"
+                # More flexible pattern matching for the API key
+                API_KEY=$(grep -E "API Key|api key|Key:|key:" backend/backend_output.log | grep -oE '[a-f0-9]{64}')
+                
+                if [[ -n $API_KEY ]]; then
+                    echo -e "${GREEN}API Key obtained for secure communication${NC}"
+                else
+                    echo -e "${YELLOW}First attempt to extract API key failed, trying alternate methods...${NC}"
+                    
+                    # Try to extract any 64-character hex string that might be the API key
+                    API_KEY=$(grep -oE '[a-f0-9]{64}' backend/backend_output.log | head -1)
+                    
+                    if [[ -n $API_KEY ]]; then
+                        echo -e "${GREEN}API Key extracted using pattern matching${NC}"
+                    else
+                        # If we still can't extract the key automatically, check if the file exists
+                        if [[ -f backend/api_key.txt ]]; then
+                            API_KEY=$(cat backend/api_key.txt)
+                            echo -e "${GREEN}API Key loaded directly from api_key.txt file${NC}"
+                        else
+                            echo -e "${RED}Warning: Could not extract API key from server output${NC}"
+                            echo -e "${YELLOW}You may need to manually enter the API key when prompted${NC}"
+                            
+                            # For debugging only - remove in production
+                            echo -e "${YELLOW}Server log contents for debugging:${NC}"
+                            cat backend/backend_output.log
+                        fi
+                    fi
+                fi
             fi
+        else
+            echo -e "${RED}Warning: Backend output log file not found${NC}"
         fi
     fi
 fi
