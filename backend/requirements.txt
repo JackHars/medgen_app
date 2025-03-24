@@ -4,4 +4,12 @@ numpy==1.26.1
 librosa==0.10.1
 soundfile==0.12.1
 scipy==1.11.3
-requests==2.31.0 
+requests==2.31.0
+python-dotenv==1.0.0
+gunicorn==21.2.0
+f5-tts==0.1.0  # Replace with actual version when available
+Werkzeug==2.3.7
+click==8.1.7
+itsdangerous==2.1.2
+Jinja2==3.1.2
+MarkupSafe==2.1.3 

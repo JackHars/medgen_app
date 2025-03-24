@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:gensite/services/api_service.dart';
+import 'package:gensite/services/api_config.dart';
+import 'package:gensite/services/audio_player_helper.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:math' as math;
 import 'dart:async';
@@ -88,7 +90,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   double _audioProgress = 0.0;
   Duration? _audioDuration;
   late AnimationController _audioProgressController;
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final AudioPlayer _audioPlayer = AudioPlayerHelper.player;
   String? _audioUrl;
   String? _audioError;
   
@@ -215,7 +217,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void dispose() {
     _inputController.dispose();
     _audioProgressController.dispose();
-    _audioPlayer.dispose();
+    // Use our helper's dispose method instead of directly disposing the player
+    AudioPlayerHelper.dispose();
     _pollingTimer?.cancel();
     _progressTimer?.cancel(); // Don't forget to cancel the new timer
     for (final controller in _starControllers) {
@@ -230,18 +233,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // If there was an error, reset and try again
     if (_audioError != null) {
       _resetAudioPlayer();
-    setState(() {
+      setState(() {
         _audioError = null;
       });
     }
     
-      if (_isPlaying) {
+    if (_isPlaying) {
       // If already playing, just pause
       await _audioPlayer.pause();
       setState(() {
         _isPlaying = false;
       });
-      } else {
+    } else {
       // Show pause button immediately for better UX
       setState(() {
         _isPlaying = true;
@@ -250,20 +253,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       });
       
       try {
-        // If we haven't loaded the audio yet, load it
-        if (_audioPlayer.duration == null) {
-          // If it's a relative URL, prepend the base URL
-          final String fullUrl = _audioUrl!.startsWith('http') 
-              ? _audioUrl! 
-              : '${ApiService.baseUrl}${_audioUrl!}';
-              
-          print('Loading audio from: $fullUrl');
-          
-          await _audioPlayer.setUrl(fullUrl);
+        // Check if audio is already loaded (this will be true if preloading worked)
+        if (_audioPlayer.duration != null) {
+          // Just play the already loaded audio
+          print('Audio already loaded, playing immediately');
           await _audioPlayer.play();
         } else {
-          // Resume playback
-          await _audioPlayer.play();
+          // If we haven't loaded the audio yet, load it
+          String baseUrl = _audioUrl!;
+          if (!baseUrl.startsWith('http')) {
+            baseUrl = '${ApiConfig.baseUrl}$baseUrl';
+          }
+          
+          print('Loading audio with authentication from: $baseUrl');
+          
+          // Use our helper to handle authentication properly
+          await AudioPlayerHelper.loadAndPlayAudio(baseUrl, ApiConfig.apiKey);
         }
         
         // Update state once loading is complete
@@ -477,13 +482,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         _pollingTimer?.cancel();
         _progressTimer?.cancel();
         
+        final audioUrl = response['audio_url'];
+        
         setState(() {
           _meditation = response['meditation_script'] ?? '';
-          _audioUrl = response['audio_url'];
+          _audioUrl = audioUrl;
           _isLoading = false;
           _statusMessage = '';
           _progressPercent = 100; // Ensure we show 100% when complete
         });
+        
+        // Preload the audio file as soon as the meditation is complete
+        if (audioUrl != null && audioUrl.isNotEmpty) {
+          // Start preloading without blocking the UI
+          _preloadAudio(audioUrl);
+        }
       }
       
       // Check if there was an error
@@ -610,7 +623,33 @@ Remember, you can return to this meditation practice whenever you need a moment 
           ? _audioUrl! 
           : '${ApiService.baseUrl}${_audioUrl!}';
       
-      ApiService.downloadMeditationAudio(fullUrl, 'meditation.wav');
+      ApiService.downloadAudio(fullUrl, 'meditation.wav');
+    }
+  }
+
+  // Method to preload audio for better user experience
+  Future<void> _preloadAudio(String audioUrl) async {
+    if (audioUrl.isEmpty) return;
+    
+    try {
+      // Check if we already have loaded this audio
+      if (_audioPlayer.duration != null) return;
+      
+      // Get the base URL for the audio
+      String baseUrl = audioUrl;
+      if (!baseUrl.startsWith('http')) {
+        baseUrl = '${ApiConfig.baseUrl}$baseUrl';
+      }
+      
+      print('Preloading audio with authentication from: $baseUrl');
+      
+      // Use our helper to handle authentication properly, but just load without playing
+      await AudioPlayerHelper.preloadAudio(baseUrl, ApiConfig.apiKey);
+      
+      print('Audio preloaded successfully');
+    } catch (e) {
+      print('Error preloading audio: $e');
+      // Don't show an error to the user during preloading
     }
   }
 

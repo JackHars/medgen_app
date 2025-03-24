@@ -1,83 +1,112 @@
 # Oneiro - AI-Powered Meditation Generator
 
-A modern, cosmic-themed Flutter web application that creates personalized guided meditations to help you journey through mindful dreams.
+Oneiro is a modern web application that generates personalized meditation experiences using advanced AI technology. It combines text-to-speech synthesis with ambient background sounds to create immersive meditation sessions tailored to your specific concerns.
 
 ## Features
 
-- Modern, dark UI with cosmic-zen aesthetic
-- Sleek, single-line input for describing your concerns
-- AI-powered meditation generation
-- Responsive design with animated starfield background
-- Beautiful typography and smooth animations
+- 🤖 AI-powered meditation script generation using local Ollama
+- 🎙️ High-quality text-to-speech using custom F5-TTS model
+- 🌊 Ambient background sound processing with PaulStretch algorithm
+- 🎨 Modern, responsive Flutter web interface
+- 🔒 Secure API key authentication
+- 📱 Progressive Web App (PWA) support
+- 🎵 Real-time audio playback with progress tracking
+- 💾 Download meditation audio files
 
-## Getting Started
+## Prerequisites
 
-### Prerequisites
+- Python 3.8 or higher
+- Flutter SDK 3.0 or higher
+- Ollama installed and running locally
+- F5-TTS model files (see Setup section)
 
-- Flutter SDK (latest stable version recommended)
-- Dart SDK
-- Chrome browser (for web development)
-
-### Installation
+## Setup
 
 1. Clone the repository:
 ```bash
-git clone <your-repository-url>
-cd gensite
+git clone https://github.com/JackHars/medgen.git
+cd oneiro
 ```
 
-2. Install dependencies:
+2. Set up the Python backend:
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+3. Download required model files:
+- Place F5-TTS model files in `backend/models/`:
+  - `experimental.pt` (model checkpoint)
+  - `main.txt` (vocabulary file)
+
+4. Set up the Flutter frontend:
 ```bash
 flutter pub get
 ```
 
-3. Run the application in Chrome:
+5. Start Ollama:
+```bash
+ollama serve
+ollama pull phi4
+```
+
+## Running the Application
+
+1. Start the backend server:
+```bash
+cd backend
+python server.py
+```
+
+2. Run the Flutter web app:
 ```bash
 flutter run -d chrome
 ```
 
-## How It Works
+3. Open your browser and navigate to `http://localhost:8080`
 
-Oneiro combines modern design with AI technology to create a dreamlike space for meditation. Users can describe their current state of mind, and the application generates a personalized meditation tailored to their needs.
+## Development
 
-In the development version, the app provides contextually appropriate meditations based on keyword analysis. In production, this would connect to an AI service for truly personalized meditation generation.
+### Backend Structure
+- `server.py`: Flask server with API endpoints
+- `main.py`: Core meditation generation logic
+- `models/`: Directory for AI model files
+- `samples/`: Sample audio files for testing
 
-## Design System
+### Frontend Structure
+- `lib/`: Flutter source code
+  - `services/`: API and audio service implementations
+  - `main.dart`: Main application entry point
 
-### Colors
-- Primary: `Color(0xFF8B5CF6)` - Purple for spiritual energy
-- Secondary: `Color(0xFFEC4899)` - Pink for emotional warmth
-- Background: `Color(0xFF0F172A)` - Deep space blue
-- Surface: `Color(0xFF1E293B)` - Lighter cosmic blue
+## API Endpoints
 
-### Typography
-- Font: Inter (Google Fonts)
-- Headings: 48px/24px with custom line height
-- Body: 16px with 1.8 line height
-- Subtle text: White with reduced opacity
+- `POST /api/generate-meditation`: Generate a new meditation
+- `GET /api/meditation-status/<job_id>`: Check meditation generation status
+- `GET /api/meditation-audio/<job_id>`: Download generated meditation audio
+- `GET /api/health`: Health check endpoint
+- `GET /api/verify-key`: API key verification
 
-### UI Elements
-- Floating cards with subtle borders
-- Animated starfield background
-- Gradient overlays
-- Smooth hover states and transitions
+## Contributing
 
-## Connecting to Your Meditation API
-
-The application is set up to communicate with a backend API. To connect to your meditation generation service:
-
-1. Open `lib/services/api_service.dart`
-2. Update the `baseUrl` constant with your API URL
-3. Modify the `processText` method to match your API's request/response format
-
-## Building for Production
-
-```bash
-flutter build web
-```
-
-The built files will be available in the `build/web` directory and can be deployed to any web hosting service.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- [F5-TTS](https://github.com/SWivid/F5-TTS) for the text-to-speech model
+- [Ollama](https://ollama.ai/) for the local LLM capabilities
+- [PaulStretch](https://github.com/paulnasca/paulstretch_python) for the audio stretching algorithm
+
+## Support
+
+For support, please open an issue in the GitHub repository or contact the maintainers.
+

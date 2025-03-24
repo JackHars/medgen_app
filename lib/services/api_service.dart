@@ -1,27 +1,22 @@
 import 'dart:convert';
-import 'dart:html' as html;
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'file_download_impl.dart';
+import 'api_config.dart';
 
 class ApiService {
   // Only use localhost - no production API exists
-  static const String baseUrl = 'http://127.0.0.1:5000';
-  
-  // API key for authentication when connecting to remote server
-  static String? apiKey;
+  static const String baseUrl = 'http://192.168.2.116:5000';
   
   // Helper to get headers with API key if available
   static Map<String, String> _getHeaders() {
-    final headers = {'Content-Type': 'application/json'};
-    if (apiKey != null && apiKey!.isNotEmpty) {
-      headers['X-API-Key'] = apiKey!;
-    }
-    return headers;
+    // Use ApiConfig's headers to ensure we're getting the API key set by the script
+    return ApiConfig.getHeaders();
   }
   
   // Method to verify API key with the server
   static Future<bool> verifyApiKey() async {
-    if (apiKey == null || apiKey!.isEmpty) {
+    if (ApiConfig.apiKey == null || ApiConfig.apiKey!.isEmpty) {
       return false;
     }
     
@@ -92,7 +87,6 @@ class ApiService {
       }
     } catch (e) {
       print('API Error (detailed): $e');
-      // Return error message
       return {
         'meditation': 'Unable to connect to meditation server. Please check your connection and try again.',
         'audioUrl': null,
@@ -137,8 +131,8 @@ class ApiService {
   }
   
   // Method to download meditation audio
-  static void downloadMeditationAudio(String audioUrl, String fileName) {
-    if (audioUrl != null && audioUrl.isNotEmpty) {
+  static Future<void> downloadAudio(String audioUrl, String fileName) async {
+    if (audioUrl.isNotEmpty) {
       // If it's a relative URL, prepend the base URL
       final String fullUrl = audioUrl.startsWith('http') 
           ? audioUrl 
@@ -146,17 +140,8 @@ class ApiService {
       
       print('Downloading audio from: $fullUrl');
       
-      // Create an anchor element with download attribute
-      final anchor = html.AnchorElement(href: fullUrl)
-        ..setAttribute('download', fileName)
-        ..style.display = 'none';
-      
-      // Add to the DOM and click it
-      html.document.body?.children.add(anchor);
-      anchor.click();
-      
-      // Clean up
-      anchor.remove();
+      // Use the platform-specific implementation
+      await downloadFile(fullUrl, fileName, _getHeaders());
     }
   }
 } 
