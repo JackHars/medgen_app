@@ -1,6 +1,6 @@
 # Oneiro - AI-Powered Meditation Generator
 
-<div style="padding:62.5% 0 0 0;position:relative;"><iframe src="https://player.vimeo.com/video/1068975735?h=a5874b3daa&amp;badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479" frameborder="0" allow="autoplay; fullscreen; picture-in-picture; clipboard-write; encrypted-media" style="position:absolute;top:0;left:0;width:100%;height:100%;" title="OneiroDemo"></iframe></div><script src="https://player.vimeo.com/api/player.js"></script>
+[![Oneiro Demo](https://vumbnail.com/1068975735.jpg)](https://vimeo.com/1068975735)
 
 Oneiro is a modern web application that generates personalized meditation experiences using advanced AI technology. It combines text-to-speech synthesis with ambient background sounds to create immersive meditation sessions tailored to your specific concerns.
 
